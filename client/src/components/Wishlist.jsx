@@ -11,37 +11,22 @@ import {
 } from 'lucide-react';
 import { formatKRW } from '../constants';
 
-export default function Wishlist({ remainingBudget = 0, onConvertToExpense, onSyncWishlist }) {
-  const [items, setItems] = useState(() => {
+export default function Wishlist({
+  items: externalItems,
+  onUpdateItems,
+  remainingBudget = 0,
+  onConvertToExpense,
+  onSyncWishlist
+}) {
+  const [localItems, setLocalItems] = useState(() => {
     const saved = localStorage.getItem('budget_wishlist');
     if (saved) {
       try { return JSON.parse(saved); } catch (_) {}
     }
-    return [
-      {
-        id: 1,
-        title: '에어팟 프로 2세대',
-        price: 320000,
-        category: '전자기기',
-        priority: 5,
-        link: 'https://www.apple.com/kr/airpods-pro/',
-        memo: '노이즈 캔슬링 필요, 특가 할인할 때 구매',
-        status: 'pending',
-        createdAt: '2026-10-20'
-      },
-      {
-        id: 2,
-        title: '러닝화',
-        price: 139000,
-        category: '패션/잡화',
-        priority: 4,
-        link: '',
-        memo: '가을 러닝용 운동화 교체',
-        status: 'pending',
-        createdAt: '2026-10-22'
-      }
-    ];
+    return [];
   });
+
+  const items = externalItems !== undefined ? externalItems : localItems;
 
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [filter, setFilter] = useState('pending');
@@ -56,7 +41,11 @@ export default function Wishlist({ remainingBudget = 0, onConvertToExpense, onSy
   });
 
   const updateItems = (newItems) => {
-    setItems(newItems);
+    if (onUpdateItems) {
+      onUpdateItems(newItems);
+    } else {
+      setLocalItems(newItems);
+    }
     localStorage.setItem('budget_wishlist', JSON.stringify(newItems));
     if (onSyncWishlist) {
       onSyncWishlist(newItems);
@@ -64,11 +53,13 @@ export default function Wishlist({ remainingBudget = 0, onConvertToExpense, onSy
   };
 
   useEffect(() => {
-    const saved = localStorage.getItem('budget_wishlist');
-    if (saved) {
-      try { setItems(JSON.parse(saved)); } catch (_) {}
+    if (externalItems === undefined) {
+      const saved = localStorage.getItem('budget_wishlist');
+      if (saved) {
+        try { setLocalItems(JSON.parse(saved)); } catch (_) {}
+      }
     }
-  }, []);
+  }, [externalItems]);
 
   const handleAddItem = (e) => {
     e.preventDefault();

@@ -63,11 +63,73 @@ function computeClientStats(txList, year, month, monthlyBudget = 1200000) {
   };
 }
 
+// Helper: Send POST payload to Google Apps Script Web App
+async function postToGoogleSheets(sheetsUrl, payload) {
+  if (!sheetsUrl || sheetsUrl.includes('/macros/library/')) return;
+  const body = JSON.stringify(payload);
+  try {
+    await fetch(sheetsUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body
+    });
+  } catch (_) {
+    try {
+      await fetch(sheetsUrl, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body
+      });
+    } catch (__) {}
+  }
+}
+
 export default function App() {
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [transactions, setTransactions] = useState([]);
-  const [stats, setStats] = useState(null);
-  const [settings, setSettings] = useState(null);
+
+  // Initialize directly from localStorage so UI is instant and never flashes unlinked state
+  const [transactions, setTransactions] = useState(() => {
+    try {
+      const saved = localStorage.getItem('budget_local_transactions');
+      return saved ? JSON.parse(saved) : [];
+    } catch (_) {
+      return [];
+    }
+  });
+
+  const [wishlist, setWishlist] = useState(() => {
+    try {
+      const saved = localStorage.getItem('budget_wishlist');
+      return saved ? JSON.parse(saved) : [];
+    } catch (_) {
+      return [];
+    }
+  });
+
+  const [settings, setSettings] = useState(() => {
+    const key = localStorage.getItem('budget_gemini_key') || '';
+    const sheets = localStorage.getItem('budget_sheets_url') || '';
+    const b = Number(localStorage.getItem('budget_monthly_target')) || 1200000;
+    return {
+      gemini_api_key: key,
+      hasApiKey: !!key,
+      monthly_budget: b,
+      google_sheets_url: sheets
+    };
+  });
+
+  const [stats, setStats] = useState(() => {
+    const now = new Date();
+    const b = Number(localStorage.getItem('budget_monthly_target')) || 1200000;
+    let list = [];
+    try {
+      const saved = localStorage.getItem('budget_local_transactions');
+      list = saved ? JSON.parse(saved) : [];
+    } catch (_) {}
+    return computeClientStats(list, now.getFullYear(), now.getMonth() + 1, b);
+  });
+
   const [networkInfo, setNetworkInfo] = useState(null);
   const [isSyncing, setIsSyncing] = useState(false);
 
@@ -93,64 +155,106 @@ export default function App() {
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth() + 1;
 
-  // 1. Fetch Transactions
-  const fetchTransactions = useCallback(async () => {
+  // Keep stats in sync whenever transactions, year, month, or monthly_budget change
+  useEffect(() => {
+    const b = Number(settings?.monthly_budget) || Number(localStorage.getItem('budget_monthly_target')) || 1200000;
+    const monthStr = String(month).padStart(2, '0');
+    const pattern = `${year}-${monthStr}`;
+    let allTx = transactions;
     try {
-      const res = await fetch(`/api/transactions?year=${year}&month=${month}`);
-      if (res.ok) {
-        const data = await res.json();
-        setTransactions(data);
-        return;
+      const saved = localStorage.getItem('budget_local_transactions');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed.length > allTx.length) allTx = parsed;
       }
     } catch (_) {}
+    setStats(computeClientStats(allTx, year, month, b));
+  }, [transactions, year, month, settings?.monthly_budget]);
 
-    // Fallback: LocalStorage / Serverless
-    const saved = localStorage.getItem('budget_local_transactions');
-    const list = saved ? JSON.parse(saved) : [];
-    setTransactions(list);
+  // 1. Fetch Transactions (Merges localStorage & optional local server)
+  const fetchTransactions = useCallback(async () => {
+    const hasSheets = !!(localStorage.getItem('budget_sheets_url'));
+    let localList = [];
+    try {
+      const saved = localStorage.getItem('budget_local_transactions');
+      localList = saved ? JSON.parse(saved) : [];
+    } catch (_) {}
+
+    if (!hasSheets) {
+      try {
+        const res = await fetch(`/api/transactions?year=${year}&month=${month}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data) && data.length > 0 && localList.length === 0) {
+            setTransactions(data);
+            localStorage.setItem('budget_local_transactions', JSON.stringify(data));
+            return;
+          }
+        }
+      } catch (_) {}
+    }
+
+    const monthStr = String(month).padStart(2, '0');
+    const pattern = `${year}-${monthStr}`;
+    const filtered = localList.filter(t => !t.date || t.date.startsWith(pattern));
+    setTransactions(filtered);
   }, [year, month]);
 
   // 2. Fetch Stats
   const fetchStats = useCallback(async () => {
+    let localList = [];
     try {
-      const res = await fetch(`/api/stats/monthly?year=${year}&month=${month}`);
-      if (res.ok) {
-        const data = await res.json();
-        setStats(data);
-        return;
-      }
+      const saved = localStorage.getItem('budget_local_transactions');
+      localList = saved ? JSON.parse(saved) : [];
     } catch (_) {}
+    const b = Number(localStorage.getItem('budget_monthly_target')) || Number(settings?.monthly_budget) || 1200000;
+    setStats(computeClientStats(localList, year, month, b));
+  }, [year, month, settings?.monthly_budget]);
 
-    // Fallback: Compute client-side
-    const saved = localStorage.getItem('budget_local_transactions');
-    const list = saved ? JSON.parse(saved) : [];
-    const b = Number(localStorage.getItem('budget_monthly_target')) || 1200000;
-    setStats(computeClientStats(list, year, month, b));
-  }, [year, month]);
-
-  // 3. Fetch Settings
+  // 3. Fetch Settings (Never overwrites localStorage with empty server values)
   const fetchSettings = useCallback(async () => {
+    let key = localStorage.getItem('budget_gemini_key') || '';
+    let sheets = localStorage.getItem('budget_sheets_url') || '';
+    let b = Number(localStorage.getItem('budget_monthly_target')) || 0;
+
     try {
       const res = await fetch('/api/settings');
       if (res.ok) {
         const data = await res.json();
-        setSettings(data);
-        if (data.gemini_api_key) localStorage.setItem('budget_gemini_key', data.gemini_api_key);
-        if (data.google_sheets_url) localStorage.setItem('budget_sheets_url', data.google_sheets_url);
-        return;
+        if (!key && data.gemini_api_key && !data.gemini_api_key.includes('...')) {
+          key = data.gemini_api_key;
+          localStorage.setItem('budget_gemini_key', key);
+        }
+        if (!sheets && data.google_sheets_url) {
+          sheets = data.google_sheets_url;
+          localStorage.setItem('budget_sheets_url', sheets);
+        }
+        if (!b && data.monthly_budget) {
+          b = Number(data.monthly_budget);
+          localStorage.setItem('budget_monthly_target', String(b));
+        }
+        // If localStorage has values that server doesn't have yet, push to server
+        if (sheets || b) {
+          fetch('/api/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              google_sheets_url: sheets,
+              monthly_budget: b || 1200000
+            })
+          }).catch(() => {});
+        }
       }
     } catch (_) {}
 
-    // Fallback: LocalStorage
-    const key = localStorage.getItem('budget_gemini_key') || '';
-    const sheets = localStorage.getItem('budget_sheets_url') || '';
-    const b = Number(localStorage.getItem('budget_monthly_target')) || 1200000;
-    setSettings({
-      gemini_api_key: key,
-      hasApiKey: !!key,
+    if (!b) b = 1200000;
+    setSettings(prev => ({
+      ...prev,
+      gemini_api_key: key || prev?.gemini_api_key || '',
+      hasApiKey: !!(key || prev?.hasApiKey),
       monthly_budget: b,
       google_sheets_url: sheets
-    });
+    }));
   }, []);
 
   // 4. Fetch Network Info for QR Code
@@ -161,47 +265,163 @@ export default function App() {
         const data = await res.json();
         setNetworkInfo(data);
       }
-    } catch (err) {
-      console.error('Failed to fetch network info:', err);
-    }
+    } catch (_) {}
   }, []);
 
-  // Initial load
+  // Google Sheets Full Sync (Transactions + Wishlist + Budget)
+  const handleSyncGoogleSheets = useCallback(async (overrideUrl, overrideLocalBudget, silent = false) => {
+    const sheetsUrl = (overrideUrl || localStorage.getItem('budget_sheets_url') || settings?.google_sheets_url || '').trim();
+    if (!sheetsUrl || sheetsUrl.includes('/macros/library/')) {
+      if (!silent) {
+        setIsSettingsModalOpen(true);
+        showToast('⚙️ 먼저 올바른 구글 시트 웹 앱 URL(/exec)을 등록해 주세요.');
+      }
+      return;
+    }
+
+    setIsSyncing(true);
+    try {
+      const res = await fetch(`${sheetsUrl}${sheetsUrl.includes('?') ? '&' : '?'}_t=${Date.now()}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+
+      let txCount = 0;
+      let wishCount = 0;
+      const localBudget = Number(overrideLocalBudget) || Number(localStorage.getItem('budget_monthly_target')) || 0;
+
+      if (data && typeof data === 'object' && !Array.isArray(data)) {
+        // 1. Transactions
+        if (Array.isArray(data.transactions)) {
+          let localTx = [];
+          try {
+            localTx = JSON.parse(localStorage.getItem('budget_local_transactions') || '[]');
+          } catch (_) {}
+
+          if (data.transactions.length === 0 && localTx.length > 0) {
+            // Sheet is empty but device has local transactions -> push local transactions to sheet
+            for (const tx of localTx) {
+              await postToGoogleSheets(sheetsUrl, { action: 'add_transaction', ...tx });
+            }
+            txCount = localTx.length;
+          } else {
+            localStorage.setItem('budget_local_transactions', JSON.stringify(data.transactions));
+            const monthStr = String(month).padStart(2, '0');
+            const pattern = `${year}-${monthStr}`;
+            setTransactions(data.transactions.filter(t => !t.date || t.date.startsWith(pattern)));
+            txCount = data.transactions.length;
+          }
+        }
+
+        // 2. Wishlist
+        if (Array.isArray(data.wishlist)) {
+          let localWish = [];
+          try {
+            localWish = JSON.parse(localStorage.getItem('budget_wishlist') || '[]');
+          } catch (_) {}
+
+          if (data.wishlist.length === 0 && localWish.length > 0) {
+            await postToGoogleSheets(sheetsUrl, { action: 'sync_wishlist', wishlist: localWish });
+            wishCount = localWish.length;
+          } else {
+            setWishlist(data.wishlist);
+            localStorage.setItem('budget_wishlist', JSON.stringify(data.wishlist));
+            wishCount = data.wishlist.length;
+          }
+        }
+
+        // 3. Monthly Budget Target
+        const sheetBudget = Number(data.settings?.monthly_budget) || 0;
+        let finalBudget = 1200000;
+
+        if (overrideLocalBudget && Number(overrideLocalBudget) !== 1200000) {
+          // User explicitly saved/tested with a specific budget on this device -> push to sheet
+          finalBudget = Number(overrideLocalBudget);
+          await postToGoogleSheets(sheetsUrl, { action: 'update_budget', monthly_budget: finalBudget });
+        } else if (sheetBudget && sheetBudget !== 1200000) {
+          // Sheet has a custom budget (e.g. 400,000 set from PC) -> adopt on Phone/PC!
+          finalBudget = sheetBudget;
+        } else if (localBudget && localBudget !== 1200000 && (!sheetBudget || sheetBudget === 1200000)) {
+          // Local device has custom budget (e.g. 400,000) while sheet still has default 1,200,000 -> push local to sheet!
+          finalBudget = localBudget;
+          await postToGoogleSheets(sheetsUrl, { action: 'update_budget', monthly_budget: finalBudget });
+        } else if (sheetBudget) {
+          finalBudget = sheetBudget;
+        } else if (localBudget) {
+          finalBudget = localBudget;
+        }
+
+        localStorage.setItem('budget_monthly_target', String(finalBudget));
+        setSettings(prev => ({
+          ...prev,
+          monthly_budget: finalBudget,
+          google_sheets_url: sheetsUrl
+        }));
+      } else if (Array.isArray(data)) {
+        localStorage.setItem('budget_local_transactions', JSON.stringify(data));
+        const monthStr = String(month).padStart(2, '0');
+        const pattern = `${year}-${monthStr}`;
+        setTransactions(data.filter(t => !t.date || t.date.startsWith(pattern)));
+        txCount = data.length;
+      }
+
+      fetchStats();
+      if (!silent) {
+        showToast(`🎉 구글 시트 동기화 완료! (내역 ${txCount}건, 위시리스트 ${wishCount}건)`);
+      }
+    } catch (err) {
+      if (!silent) {
+        showToast('⚠️ 구글 시트 동기화 실패: URL을 확인해 주세요.');
+      }
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [month, year, settings?.google_sheets_url, fetchStats]);
+
+  // Initial load + Auto-sync from Google Sheets on startup & tab focus
   useEffect(() => {
-    // Check if sheet URL is passed in query string (from QR code scan)
     const urlParams = new URLSearchParams(window.location.search);
     const sheetFromUrl = urlParams.get('sheet');
-    if (sheetFromUrl) {
-      localStorage.setItem('budget_sheets_url', sheetFromUrl);
+    if (sheetFromUrl && !sheetFromUrl.includes('/macros/library/')) {
+      localStorage.setItem('budget_sheets_url', sheetFromUrl.trim());
+      setSettings(prev => ({ ...prev, google_sheets_url: sheetFromUrl.trim() }));
       window.history.replaceState({}, document.title, window.location.pathname);
-      fetch(sheetFromUrl)
-        .then(r => r.json())
-        .then(data => {
-          if (data && typeof data === 'object') {
-            if (Array.isArray(data.transactions)) {
-              setTransactions(data.transactions);
-              localStorage.setItem('budget_local_transactions', JSON.stringify(data.transactions));
-            }
-            if (Array.isArray(data.wishlist)) {
-              localStorage.setItem('budget_wishlist', JSON.stringify(data.wishlist));
-            }
-            if (data.settings && data.settings.monthly_budget) {
-              const b = Number(data.settings.monthly_budget);
-              localStorage.setItem('budget_monthly_target', String(b));
-              setSettings(prev => ({ ...prev, monthly_budget: b, google_sheets_url: sheetFromUrl }));
-            }
-          }
-          showToast('🔗 구글 시트와 즉시 연동되었습니다!');
-          fetchStats();
-        })
-        .catch(() => {});
+      showToast('🔗 구글 시트가 자동 연결되었습니다!');
     }
 
     fetchTransactions();
     fetchStats();
     fetchSettings();
     fetchNetworkInfo();
-  }, [fetchTransactions, fetchStats, fetchSettings, fetchNetworkInfo]);
+
+    const activeSheet = (sheetFromUrl || localStorage.getItem('budget_sheets_url') || '').trim();
+    if (activeSheet && !activeSheet.includes('/macros/library/')) {
+      handleSyncGoogleSheets(activeSheet, null, !sheetFromUrl);
+    }
+
+    // Auto-sync whenever user returns to the app/tab on mobile or PC
+    const handleVisibilityOrFocus = () => {
+      if (document.visibilityState === 'visible') {
+        const currentSheet = (localStorage.getItem('budget_sheets_url') || '').trim();
+        if (currentSheet && !currentSheet.includes('/macros/library/')) {
+          handleSyncGoogleSheets(currentSheet, null, true);
+        }
+      }
+    };
+
+    window.addEventListener('focus', handleVisibilityOrFocus);
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+    return () => {
+      window.removeEventListener('focus', handleVisibilityOrFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Re-filter transactions when month/year changes
+  useEffect(() => {
+    fetchTransactions();
+    fetchStats();
+  }, [year, month, fetchTransactions, fetchStats]);
 
   // Month navigation
   const handlePrevMonth = () => {
@@ -279,51 +499,47 @@ export default function App() {
 
   // Save Transaction (from Scanner or Manual modal)
   const handleSaveTransaction = async (data) => {
-    let savedOnServer = false;
+    const isUpdate = !!data.id;
     try {
-      const isUpdate = !!data.id;
       const url = isUpdate ? `/api/transactions/${data.id}` : '/api/transactions';
       const method = isUpdate ? 'PUT' : 'POST';
-
-      const res = await fetch(url, {
+      await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data)
       });
-
-      if (res.ok) {
-        savedOnServer = true;
-      }
     } catch (_) {}
 
-    // Also update LocalStorage & Google Sheets (for GitHub Pages / Serverless)
-    const saved = localStorage.getItem('budget_local_transactions');
-    let list = saved ? JSON.parse(saved) : [];
-    if (data.id) {
+    // Update LocalStorage & state immediately
+    let list = [];
+    try {
+      const saved = localStorage.getItem('budget_local_transactions');
+      list = saved ? JSON.parse(saved) : [];
+    } catch (_) {}
+
+    const txWithId = isUpdate ? data : { ...data, id: Date.now() };
+    if (isUpdate) {
       list = list.map(item => item.id === data.id ? { ...item, ...data } : item);
     } else {
-      const newTx = { ...data, id: Date.now() };
-      list.unshift(newTx);
+      list.unshift(txWithId);
     }
     localStorage.setItem('budget_local_transactions', JSON.stringify(list));
-    pushToDrive(list);
 
-    // If Google Sheet is linked, send to Sheet directly
-    const sheetsUrl = settings?.google_sheets_url || localStorage.getItem('budget_sheets_url');
-    if (sheetsUrl) {
-      try {
-        fetch(sheetsUrl, {
-          method: 'POST',
-          mode: 'no-cors',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify(data)
-        });
-      } catch (_) {}
-    }
-
-    showToast(data.id ? '✅ 내역이 수정되었습니다!' : '🎉 가계부에 성공적으로 등록되었습니다!');
-    fetchTransactions();
+    const monthStr = String(month).padStart(2, '0');
+    const pattern = `${year}-${monthStr}`;
+    setTransactions(list.filter(t => !t.date || t.date.startsWith(pattern)));
     fetchStats();
+    showToast(isUpdate ? '✅ 내역이 수정되었습니다!' : '🎉 가계부에 성공적으로 등록되었습니다!');
+
+    // Sync to Google Sheets
+    const sheetsUrl = (settings?.google_sheets_url || localStorage.getItem('budget_sheets_url') || '').trim();
+    if (sheetsUrl) {
+      if (isUpdate) {
+        await postToGoogleSheets(sheetsUrl, { action: 'sync_transactions', transactions: list });
+      } else {
+        await postToGoogleSheets(sheetsUrl, { action: 'add_transaction', ...txWithId });
+      }
+    }
   };
 
   // Delete Transaction
@@ -334,141 +550,98 @@ export default function App() {
     } catch (_) {}
 
     // Remove from localstorage
-    const saved = localStorage.getItem('budget_local_transactions');
-    let list = saved ? JSON.parse(saved) : [];
+    let list = [];
+    try {
+      const saved = localStorage.getItem('budget_local_transactions');
+      list = saved ? JSON.parse(saved) : [];
+    } catch (_) {}
     list = list.filter(t => t.id !== id);
     localStorage.setItem('budget_local_transactions', JSON.stringify(list));
-    pushToDrive(list);
 
-    showToast('🗑️ 내역이 삭제되었습니다.');
-    fetchTransactions();
+    const monthStr = String(month).padStart(2, '0');
+    const pattern = `${year}-${monthStr}`;
+    setTransactions(list.filter(t => !t.date || t.date.startsWith(pattern)));
     fetchStats();
+    showToast('🗑️ 내역이 삭제되었습니다.');
+
+    const sheetsUrl = (settings?.google_sheets_url || localStorage.getItem('budget_sheets_url') || '').trim();
+    if (sheetsUrl) {
+      await postToGoogleSheets(sheetsUrl, { action: 'sync_transactions', transactions: list });
+    }
   };
 
   // Save Settings
   const handleSaveSettings = async (newSettings) => {
+    const cleanSheetsUrl = newSettings.google_sheets_url !== undefined
+      ? newSettings.google_sheets_url.trim()
+      : (localStorage.getItem('budget_sheets_url') || settings?.google_sheets_url || '').trim();
+
+    const newBudget = newSettings.monthly_budget !== undefined
+      ? Number(newSettings.monthly_budget)
+      : (Number(localStorage.getItem('budget_monthly_target')) || settings?.monthly_budget || 1200000);
+
+    // Always persist to localstorage first
+    if (newSettings.gemini_api_key) {
+      localStorage.setItem('budget_gemini_key', newSettings.gemini_api_key.trim());
+    }
+    if (newSettings.google_sheets_url !== undefined) {
+      localStorage.setItem('budget_sheets_url', cleanSheetsUrl);
+    }
+    if (newBudget > 0) {
+      localStorage.setItem('budget_monthly_target', String(newBudget));
+    }
+
+    // Immediately update local React state
+    setSettings(prev => ({
+      ...prev,
+      gemini_api_key: newSettings.gemini_api_key !== undefined ? newSettings.gemini_api_key : prev?.gemini_api_key,
+      hasApiKey: !!(newSettings.gemini_api_key || prev?.hasApiKey || localStorage.getItem('budget_gemini_key')),
+      google_sheets_url: cleanSheetsUrl,
+      monthly_budget: newBudget
+    }));
+
+    // Update stats immediately with new budget
+    let localList = [];
+    try {
+      const saved = localStorage.getItem('budget_local_transactions');
+      localList = saved ? JSON.parse(saved) : [];
+    } catch (_) {}
+    setStats(computeClientStats(localList, year, month, newBudget));
+
+    // Also update local server if running
     try {
       await fetch('/api/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newSettings)
+        body: JSON.stringify({
+          ...newSettings,
+          google_sheets_url: cleanSheetsUrl,
+          monthly_budget: newBudget
+        })
       });
     } catch (_) {}
 
-    // Always persist to localstorage
-    if (newSettings.gemini_api_key) localStorage.setItem('budget_gemini_key', newSettings.gemini_api_key);
-    if (newSettings.google_sheets_url !== undefined) {
-      localStorage.setItem('budget_sheets_url', newSettings.google_sheets_url);
-    }
-    if (newSettings.monthly_budget !== undefined) {
-      localStorage.setItem('budget_monthly_target', String(newSettings.monthly_budget));
-    }
-
-    // Immediately update local state
-    setSettings(prev => ({
-      ...prev,
-      gemini_api_key: newSettings.gemini_api_key !== undefined ? newSettings.gemini_api_key : prev?.gemini_api_key,
-      hasApiKey: !!(newSettings.gemini_api_key || prev?.hasApiKey),
-      google_sheets_url: newSettings.google_sheets_url !== undefined ? newSettings.google_sheets_url : prev?.google_sheets_url,
-      monthly_budget: newSettings.monthly_budget !== undefined ? Number(newSettings.monthly_budget) : prev?.monthly_budget
-    }));
-
-    if (newSettings.monthly_budget !== undefined) {
-      const b = Number(newSettings.monthly_budget);
-      setStats(prev => {
-        if (!prev) return prev;
-        const rem = b - (prev.totalExpense || 0);
-        return {
-          ...prev,
-          monthlyBudget: b,
-          remainingBudget: rem,
-          budgetPercent: b > 0 ? Math.min(Math.round(((prev.totalExpense || 0) / b) * 100), 100) : 0
-        };
+    // Push budget to Google Sheets and await completion
+    if (cleanSheetsUrl && !cleanSheetsUrl.includes('/macros/library/')) {
+      await postToGoogleSheets(cleanSheetsUrl, {
+        action: 'update_budget',
+        monthly_budget: newBudget
       });
-
-      const sheetsUrl = newSettings.google_sheets_url || localStorage.getItem('budget_sheets_url');
-      if (sheetsUrl) {
-        try {
-          fetch(sheetsUrl, {
-            method: 'POST',
-            mode: 'no-cors',
-            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify({
-              action: 'update_budget',
-              monthly_budget: b
-            })
-          });
-        } catch (_) {}
-      }
     }
 
-    fetchSettings();
-    fetchStats();
     showToast('⚙️ 설정이 안전하게 저장되었습니다.');
   };
 
   // Sync Wishlist to Google Sheets
-  const handleSyncWishlist = (wishlistItems) => {
-    const sheetsUrl = settings?.google_sheets_url || localStorage.getItem('budget_sheets_url');
+  const handleSyncWishlist = async (wishlistItems) => {
+    setWishlist(wishlistItems);
+    localStorage.setItem('budget_wishlist', JSON.stringify(wishlistItems));
+    const sheetsUrl = (settings?.google_sheets_url || localStorage.getItem('budget_sheets_url') || '').trim();
     if (sheetsUrl) {
-      try {
-        fetch(sheetsUrl, {
-          method: 'POST',
-          mode: 'no-cors',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({
-            action: 'sync_wishlist',
-            wishlist: wishlistItems
-          })
-        });
-      } catch (_) {}
-    }
-  };
-
-  // Google Sheets Full Sync (Transactions + Wishlist + Budget)
-  const handleSyncGoogleSheets = async () => {
-    const sheetsUrl = settings?.google_sheets_url || localStorage.getItem('budget_sheets_url');
-    if (!sheetsUrl) {
-      setIsSettingsModalOpen(true);
-      showToast('⚙️ 먼저 구글 시트 연동 URL을 등록해 주세요.');
-      return;
-    }
-
-    setIsSyncing(true);
-    try {
-      const res = await fetch(sheetsUrl);
-      const data = await res.json();
-
-      let txCount = 0;
-      let wishCount = 0;
-
-      if (data && typeof data === 'object' && !Array.isArray(data)) {
-        if (Array.isArray(data.transactions)) {
-          setTransactions(data.transactions);
-          localStorage.setItem('budget_local_transactions', JSON.stringify(data.transactions));
-          txCount = data.transactions.length;
-        }
-        if (Array.isArray(data.wishlist)) {
-          localStorage.setItem('budget_wishlist', JSON.stringify(data.wishlist));
-          wishCount = data.wishlist.length;
-        }
-        if (data.settings && data.settings.monthly_budget) {
-          localStorage.setItem('budget_monthly_target', String(data.settings.monthly_budget));
-          setSettings(prev => ({ ...prev, monthly_budget: data.settings.monthly_budget }));
-        }
-      } else if (Array.isArray(data)) {
-        setTransactions(data);
-        localStorage.setItem('budget_local_transactions', JSON.stringify(data));
-        txCount = data.length;
-      }
-
-      fetchTransactions();
-      fetchStats();
-      showToast(`🎉 구글 시트 동기화 완료! (지출 ${txCount}건, 위시리스트 ${wishCount}건)`);
-    } catch (err) {
-      alert('구글 시트 동기화 중 오류가 발생했습니다: ' + err.message);
-    } finally {
-      setIsSyncing(false);
+      await postToGoogleSheets(sheetsUrl, {
+        action: 'sync_wishlist',
+        wishlist: wishlistItems
+      });
     }
   };
 
@@ -505,10 +678,10 @@ export default function App() {
         }}
         onOpenQrModal={() => setIsQrModalOpen(true)}
         onOpenSettingsModal={() => setIsSettingsModalOpen(true)}
-        onSyncGoogleSheets={handleSyncGoogleSheets}
+        onSyncGoogleSheets={() => handleSyncGoogleSheets()}
         isSyncing={isSyncing}
         hasApiKey={settings?.hasApiKey}
-        hasGoogleSheets={!!settings?.google_sheets_url}
+        hasGoogleSheets={!!(settings?.google_sheets_url || localStorage.getItem('budget_sheets_url'))}
       />
 
       {/* Main Content Container */}
@@ -543,6 +716,8 @@ export default function App() {
 
         {currentView === 'wishlist' || activeMobileTab === 'wishlist' ? (
           <Wishlist
+            items={wishlist}
+            onUpdateItems={setWishlist}
             remainingBudget={stats?.remainingBudget || 0}
             onConvertToExpense={handleSaveTransaction}
             onSyncWishlist={handleSyncWishlist}
@@ -611,6 +786,7 @@ export default function App() {
         onClose={() => setIsQrModalOpen(false)}
         networkInfo={networkInfo}
         googleSheetsUrl={settings?.google_sheets_url}
+        onOpenSettings={() => setIsSettingsModalOpen(true)}
       />
 
       <SettingsModal

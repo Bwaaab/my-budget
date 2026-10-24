@@ -62,21 +62,27 @@ export default function Header({
         <div className="flex items-center gap-1.5 flex-shrink-0">
           {/* Google Sheets Sync Button */}
           <button
-            onClick={onSyncGoogleSheets}
+            onClick={hasGoogleSheets ? onSyncGoogleSheets : onOpenSettingsModal}
             disabled={isSyncing}
-            className={`flex items-center gap-1 px-2.5 sm:px-3 py-1.5 text-xs font-semibold rounded-xl border transition active:scale-95 ${
+            className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-xs font-semibold rounded-xl border transition active:scale-95 ${
               hasGoogleSheets
                 ? 'border-zinc-300 bg-white hover:bg-zinc-50 text-zinc-900 shadow-xs'
-                : 'border-zinc-200 bg-zinc-50 text-zinc-500'
+                : 'border-amber-300 bg-amber-50/80 text-amber-900 hover:bg-amber-100/70'
             }`}
-            title="구글 시트에서 최신 내역(지출·위시리스트·예산) 동기화"
+            title={
+              hasGoogleSheets
+                ? '구글 시트 연동됨 — 클릭하여 최신 내역 동기화'
+                : '구글 시트 연동 설정하기'
+            }
           >
-            {hasGoogleSheets && (
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 flex-shrink-0"></span>
-            )}
-            <RefreshCw className={`w-3.5 h-3.5 text-zinc-700 ${isSyncing ? 'animate-spin' : ''}`} />
-            <span className="hidden sm:inline text-xs">
-              {hasGoogleSheets ? '시트 동기화' : '시트 연동 필요'}
+            <span
+              className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                hasGoogleSheets ? 'bg-emerald-500' : 'bg-amber-500 animate-pulse'
+              }`}
+            />
+            <RefreshCw className={`w-3.5 h-3.5 ${hasGoogleSheets ? 'text-zinc-700' : 'text-amber-700'} ${isSyncing ? 'animate-spin' : ''}`} />
+            <span className="text-[11px] sm:text-xs whitespace-nowrap">
+              {isSyncing ? '동기화 중...' : hasGoogleSheets ? '시트 연동됨' : '시트 연동 필요'}
             </span>
           </button>
 

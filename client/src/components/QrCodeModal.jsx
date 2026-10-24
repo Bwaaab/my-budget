@@ -1,17 +1,21 @@
 import React, { useState } from 'react';
 import { X, Smartphone, Copy, Check, QrCode } from 'lucide-react';
 
-export default function QrCodeModal({ isOpen, onClose, networkInfo, googleSheetsUrl }) {
+export default function QrCodeModal({ isOpen, onClose, networkInfo, googleSheetsUrl, onOpenSettings }) {
   const [copied, setCopied] = useState(false);
 
   if (!isOpen) return null;
 
-  // Use networkInfo if local server provided it, otherwise use current page URL (for GitHub Pages)
-  let baseMobileUrl = (networkInfo?.mobileUrl || window.location.href).split('?')[0];
-  if (googleSheetsUrl) {
-    baseMobileUrl += `?sheet=${encodeURIComponent(googleSheetsUrl)}`;
-  }
-  const mobileUrl = baseMobileUrl;
+  const activeSheetUrl = (googleSheetsUrl || localStorage.getItem('budget_sheets_url') || '').trim();
+  const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+  const publicBaseUrl = isLocalhost
+    ? 'https://bwaaab.github.io/my-budget/'
+    : `${window.location.origin}${window.location.pathname}`;
+
+  const mobileUrl = activeSheetUrl
+    ? `${publicBaseUrl}?sheet=${encodeURIComponent(activeSheetUrl)}`
+    : publicBaseUrl;
+
   const qrCodeDataUrl = `https://api.qrserver.com/v1/create-qr-code/?size=256x256&data=${encodeURIComponent(mobileUrl)}`;
 
   const handleCopy = () => {
@@ -55,6 +59,27 @@ export default function QrCodeModal({ isOpen, onClose, networkInfo, googleSheets
           <p className="text-xs text-zinc-500">
             스마트폰 카메라로 위 QR 코드를 비추면 즉시 열립니다
           </p>
+
+          {activeSheetUrl ? (
+            <div className="w-full px-3 py-2 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-[11px] font-medium text-left">
+              🟢 <strong>구글 시트 연동 정보 포함됨</strong>: 이 QR 코드로 접속하면 폰에서도 예산·내역·위시리스트가 즉시 자동 동기화됩니다.
+            </div>
+          ) : (
+            <div className="w-full px-3 py-2 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-[11px] font-medium text-left flex items-center justify-between gap-2">
+              <span>⚠️ 아직 구글 시트 URL이 등록되지 않았습니다.</span>
+              {onOpenSettings && (
+                <button
+                  onClick={() => {
+                    onClose();
+                    onOpenSettings();
+                  }}
+                  className="px-2 py-1 bg-amber-800 text-white rounded-lg text-[10px] font-bold flex-shrink-0"
+                >
+                  설정하기
+                </button>
+              )}
+            </div>
+          )}
 
           {/* URL with Copy Button */}
           <div className="w-full">

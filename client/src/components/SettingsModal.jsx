@@ -67,7 +67,7 @@ const GOOGLE_SCRIPT_CODE = `function doGet(e) {
 
   // 3. Settings (목표 예산)
   var settingsSheet = ss.getSheetByName('설정');
-  var monthly_budget = 1200000;
+  var monthly_budget = null;
   if (settingsSheet) {
     var sVal = settingsSheet.getRange(1, 2).getValue();
     if (sVal) monthly_budget = Number(sVal);
@@ -85,7 +85,7 @@ function doPost(e) {
   var payload = JSON.parse(e.postData.contents);
   var action = payload.action || 'add_transaction';
 
-  // 지출/수입 등록
+  // 지출/수입 단건 등록
   if (action === 'add_transaction') {
     var txSheet = ss.getSheetByName('가계부') || ss.getActiveSheet();
     if (txSheet.getName() !== '가계부') txSheet.setName('가계부');
@@ -105,6 +105,30 @@ function doPost(e) {
       payload.memo || ''
     ]);
     return ContentService.createTextOutput(JSON.stringify({ success: true, id: id })).setMimeType(ContentService.MimeType.JSON);
+  }
+
+  // 지출/수입 전체 동기화 (수정·삭제 반영)
+  if (action === 'sync_transactions') {
+    var allTxSheet = ss.getSheetByName('가계부') || ss.getActiveSheet();
+    if (allTxSheet.getName() !== '가계부') allTxSheet.setName('가계부');
+    allTxSheet.clear();
+    allTxSheet.appendRow(['ID', '일자', '시간', '구분', '금액', '카테고리', '상호/사용처', '결제수단', '메모']);
+    if (Array.isArray(payload.transactions)) {
+      payload.transactions.forEach(function(t) {
+        allTxSheet.appendRow([
+          t.id || Date.now(),
+          t.date || '',
+          t.time || '',
+          t.type === 'income' ? '수입' : '지출',
+          Number(t.amount) || 0,
+          t.category || '기타',
+          t.merchant || '',
+          t.payment_method || '',
+          t.memo || ''
+        ]);
+      });
+    }
+    return ContentService.createTextOutput(JSON.stringify({ success: true })).setMimeType(ContentService.MimeType.JSON);
   }
 
   // 위시리스트 동기화
@@ -161,49 +185,83 @@ export default function SettingsModal({
   const [testResult, setTestResult] = useState('');
   const [isTesting, setIsTesting] = useState(false);
 
+  // Only populate fields when modal opens so background syncs don't reset user's typing
   useEffect(() => {
-    if (settings) {
-      setApiKey(settings.gemini_api_key || '');
-      setBudget(String(settings.monthly_budget || 1200000));
-      setGoogleSheetsUrl(settings.google_sheets_url || '');
+    if (isOpen) {
+      const savedKey = settings?.gemini_api_key || localStorage.getItem('budget_gemini_key') || '';
+      const savedBudget = Number(localStorage.getItem('budget_monthly_target')) || settings?.monthly_budget || 1200000;
+      const savedUrl = localStorage.getItem('budget_sheets_url') || settings?.google_sheets_url || '';
+      setApiKey(savedKey);
+      setBudget(String(savedBudget));
+      setGoogleSheetsUrl(savedUrl);
+      setTestResult('');
     }
-  }, [settings, isOpen]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
   const handleSave = async (e) => {
-    e.preventDefault();
+    if (e) e.preventDefault();
+    const cleanUrl = googleSheetsUrl.trim();
+    if (cleanUrl.includes('/macros/library/')) {
+      setTestResult('🔴 라이브러리 주소(/library/)입니다! [배포] > [새 배포]에서 끝이 /exec로 끝나는 웹 앱 URL을 복사해 주세요.');
+      return;
+    }
     await onSaveSettings({
       gemini_api_key: apiKey,
-      monthly_budget: Number(budget),
-      google_sheets_url: googleSheetsUrl
+      monthly_budget: Number(budget) || 1200000,
+      google_sheets_url: cleanUrl
     });
     setSavedSuccess(true);
     setTimeout(() => setSavedSuccess(false), 2000);
   };
 
+  // Auto-save when closing the modal so user changes are never lost
+  const handleCloseWithSave = async () => {
+    const cleanUrl = googleSheetsUrl.trim();
+    const isValidUrl = !cleanUrl || (!cleanUrl.includes('/macros/library/') && cleanUrl.startsWith('http'));
+    await onSaveSettings({
+      gemini_api_key: apiKey,
+      monthly_budget: Number(budget) || 1200000,
+      google_sheets_url: isValidUrl ? cleanUrl : (localStorage.getItem('budget_sheets_url') || '')
+    });
+    onClose();
+  };
+
   const handleTestConnection = async () => {
-    if (!googleSheetsUrl.trim()) {
+    const cleanUrl = googleSheetsUrl.trim();
+    if (!cleanUrl) {
       setTestResult('구글 시트 URL을 먼저 입력해 주세요.');
+      return;
+    }
+    if (cleanUrl.includes('/macros/library/')) {
+      setTestResult('🔴 라이브러리 주소(/library/)가 입력되었습니다. Apps Script 우측 상단 [배포] > [새 배포] > 유형 [웹 앱]에서 끝이 /exec로 끝나는 URL을 복사해 주세요.');
       return;
     }
 
     setIsTesting(true);
-    setTestResult('구글 시트와 통신을 확인하는 중...');
+    setTestResult('구글 시트와 통신 및 동기화 중...');
 
     try {
-      const res = await fetch(googleSheetsUrl.trim());
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      setTestResult('🟢 연결 성공! 구글 시트가 즉시 연동 및 저장되었습니다.');
-      // Auto-save on successful test so user never loses it
+      // 1. Save settings & push current budget to Google Sheets first
       await onSaveSettings({
         gemini_api_key: apiKey,
-        monthly_budget: Number(budget),
-        google_sheets_url: googleSheetsUrl.trim()
+        monthly_budget: Number(budget) || 1200000,
+        google_sheets_url: cleanUrl
       });
+
+      // 2. Verify GET connection
+      const res = await fetch(cleanUrl);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await res.json();
+
+      setTestResult('🟢 연결 성공! 목표 예산과 구글 시트 주소가 완벽하게 저장되었습니다.');
+      if (onSyncGoogleSheets) {
+        onSyncGoogleSheets(cleanUrl, Number(budget) || 1200000);
+      }
     } catch (err) {
-      setTestResult(`🔴 연결 실패: 구글 시트 웹앱 URL을 확인해 주세요. (${err.message})`);
+      setTestResult(`🔴 연결 실패: 구글 시트 웹앱 URL(/exec)과 액세스 권한(모든 사용자)을 확인해 주세요. (${err.message})`);
     } finally {
       setIsTesting(false);
     }
@@ -253,7 +311,7 @@ export default function SettingsModal({
         <div className="px-5 py-3.5 border-b border-zinc-100 flex items-center justify-between">
           <h2 className="text-sm font-bold text-zinc-900">환경 설정</h2>
           <button
-            onClick={onClose}
+            onClick={handleCloseWithSave}
             className="p-1 rounded-lg hover:bg-zinc-100 text-zinc-400 hover:text-zinc-600 transition"
           >
             <X className="w-4 h-4" />
@@ -282,12 +340,12 @@ export default function SettingsModal({
             </div>
 
             <p className="text-xs text-zinc-500 leading-relaxed">
-              구글 시트 URL을 등록하면 <strong>지출 내역, 목표 예산, 위시리스트까지 전부 구글 시트에 안전 저장</strong>되며 폰과 PC가 실시간 동기화됩니다. (100% 무료, 신용카드/클라우드 콘솔 전혀 불필요)
+              구글 시트 URL을 등록하면 <strong>지출 내역, 목표 예산, 위시리스트까지 전부 구글 시트에 안전 저장</strong>되며 폰과 PC가 자동 동기화됩니다. (100% 무료)
             </p>
 
             <div>
               <label className="block text-[11px] font-semibold text-zinc-700 mb-1">
-                구글 시트 웹 앱 URL
+                구글 시트 웹 앱 URL (끝이 /exec로 끝나는 주소)
               </label>
               <div className="flex gap-2">
                 <input
@@ -295,8 +353,16 @@ export default function SettingsModal({
                   placeholder="https://script.google.com/macros/s/.../exec"
                   value={googleSheetsUrl}
                   onChange={(e) => {
-                    setGoogleSheetsUrl(e.target.value);
-                    setTestResult('');
+                    const val = e.target.value;
+                    setGoogleSheetsUrl(val);
+                    if (val.includes('/macros/library/')) {
+                      setTestResult('🔴 라이브러리 주소(/library/)입니다! [배포] > [새 배포]에서 끝이 /exec로 끝나는 웹 앱 URL을 복사해 주세요.');
+                    } else {
+                      setTestResult('');
+                      if (val.trim().startsWith('https://script.google.com/macros/s/')) {
+                        localStorage.setItem('budget_sheets_url', val.trim());
+                      }
+                    }
                   }}
                   className="flex-1 text-xs px-3 py-2 bg-white border border-zinc-200 rounded-xl focus:ring-1 focus:ring-zinc-600 outline-none"
                 />
@@ -304,10 +370,10 @@ export default function SettingsModal({
                   type="button"
                   onClick={handleTestConnection}
                   disabled={isTesting || !googleSheetsUrl.trim()}
-                  className="px-3 py-2 bg-zinc-900 hover:bg-zinc-800 disabled:opacity-50 text-white rounded-xl text-xs font-semibold flex items-center gap-1 transition"
+                  className="px-3 py-2 bg-zinc-900 hover:bg-zinc-800 disabled:opacity-50 text-white rounded-xl text-xs font-semibold flex items-center gap-1 transition flex-shrink-0"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${isTesting ? 'animate-spin' : ''}`} />
-                  <span>연동 테스트</span>
+                  <span>연동 & 저장</span>
                 </button>
               </div>
               {testResult && (
@@ -404,20 +470,32 @@ export default function SettingsModal({
               <input
                 type="number"
                 value={budget}
-                onChange={(e) => setBudget(e.target.value)}
+                onChange={(e) => {
+                  setBudget(e.target.value);
+                  if (Number(e.target.value) > 0) {
+                    localStorage.setItem('budget_monthly_target', String(Number(e.target.value)));
+                  }
+                }}
                 className="w-full text-sm font-bold px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl focus:bg-white focus:ring-1 focus:ring-zinc-600 outline-none"
               />
               <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-zinc-400">
                 {formatKRW(budget)}
               </span>
             </div>
-            <div className="flex gap-1.5">
-              {[500000, 1000000, 1200000, 1500000, 2000000].map((amt) => (
+            <div className="flex flex-wrap gap-1.5">
+              {[300000, 400000, 500000, 800000, 1000000, 1500000].map((amt) => (
                 <button
                   key={amt}
                   type="button"
-                  onClick={() => setBudget(String(amt))}
-                  className="px-2.5 py-1 text-[11px] bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded-lg font-medium transition"
+                  onClick={() => {
+                    setBudget(String(amt));
+                    localStorage.setItem('budget_monthly_target', String(amt));
+                  }}
+                  className={`px-2.5 py-1 text-[11px] rounded-lg font-medium transition ${
+                    Number(budget) === amt
+                      ? 'bg-zinc-900 text-white font-bold'
+                      : 'bg-zinc-100 hover:bg-zinc-200 text-zinc-700'
+                  }`}
                 >
                   {amt / 10000}만
                 </button>
@@ -429,9 +507,9 @@ export default function SettingsModal({
           <div className="pt-2">
             <button
               onClick={handleSave}
-              className="w-full py-2 bg-zinc-900 hover:bg-zinc-800 text-white font-bold text-xs rounded-xl shadow-xs transition"
+              className="w-full py-2.5 bg-zinc-900 hover:bg-zinc-800 text-white font-bold text-xs rounded-xl shadow-xs transition"
             >
-              {savedSuccess ? '설정 저장 완료!' : '설정 저장하기'}
+              {savedSuccess ? '✅ 설정 및 구글 시트 저장 완료!' : '설정 저장하기'}
             </button>
           </div>
 
