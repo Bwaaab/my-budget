@@ -34,25 +34,41 @@ async function analyzeDirectWithGemini(base64Data, mimeType, apiKey) {
   "memo": "간단 메모"
 }`;
 
-  const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + apiKey;
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{
-        parts: [
-          { text: prompt },
-          { inline_data: { mime_type: mimeType, data: base64Data } }
-        ]
-      }],
-      generationConfig: { response_mime_type: "application/json" }
-    })
-  });
+  const models = ['gemini-3.8-flash', 'gemini-2.5-flash', 'gemini-1.5-flash'];
+  let lastError = null;
 
-  if (!res.ok) throw new Error('Gemini API 응답 오류');
-  const data = await res.json();
-  const txt = data.candidates?.[0]?.content?.parts?.[0]?.text;
-  return JSON.parse(txt);
+  for (const model of models) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{
+            parts: [
+              { text: prompt },
+              { inline_data: { mime_type: mimeType, data: base64Data } }
+            ]
+          }],
+          generationConfig: { response_mime_type: "application/json" }
+        })
+      });
+
+      if (!res.ok) {
+        throw new Error(`API ${res.status}`);
+      }
+
+      const data = await res.json();
+      const txt = data.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (txt) {
+        return JSON.parse(txt);
+      }
+    } catch (err) {
+      lastError = err;
+    }
+  }
+
+  throw lastError || new Error('AI 분석 실패');
 }
 
 export default function AiScannerModal({

@@ -221,24 +221,32 @@
   "memo": "간단 메모"
 }`;
 
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{
-            parts: [
-              { text: prompt },
-              { inline_data: { mime_type: mimeType, data: base64Data } }
-            ]
-          }],
-          generationConfig: { response_mime_type: "application/json" }
-        })
-      });
+      const models = ['gemini-3.8-flash', 'gemini-2.5-flash', 'gemini-1.5-flash'];
+      for (const model of models) {
+        try {
+          const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{
+                parts: [
+                  { text: prompt },
+                  { inline_data: { mime_type: mimeType, data: base64Data } }
+                ]
+              }],
+              generationConfig: { response_mime_type: "application/json" }
+            })
+          });
 
-      if (!res.ok) throw new Error('API 응답 에러');
-      const data = await res.json();
-      const txt = data.candidates?.[0]?.content?.parts?.[0]?.text;
-      return JSON.parse(txt);
+          if (res.ok) {
+            const data = await res.json();
+            const txt = data.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (txt) return JSON.parse(txt);
+          }
+        } catch (_) {}
+      }
+
+      throw new Error('AI 분석 실패');
     }
 
     async function sendToGoogleSheets() {
