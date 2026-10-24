@@ -10,6 +10,13 @@ import SettingsModal from './components/SettingsModal';
 import ReceiptViewerModal from './components/ReceiptViewerModal';
 import MobileBottomNav from './components/MobileBottomNav';
 import Wishlist from './components/Wishlist';
+import {
+  initGoogleAuth,
+  getGoogleUserInfo,
+  findOrCreateBudgetFile,
+  loadFromGoogleDrive,
+  saveToGoogleDrive
+} from './googleDrive';
 import { Sparkles, UploadCloud, Smartphone, Wallet, Heart } from 'lucide-react';
 
 // Helper: Client-side stats computation (used on GitHub Pages / Serverless)
@@ -70,6 +77,15 @@ export default function App() {
   const [settings, setSettings] = useState(null);
   const [networkInfo, setNetworkInfo] = useState(null);
   const [isSyncing, setIsSyncing] = useState(false);
+
+  // Google Drive Cloud Sync State
+  const [googleToken, setGoogleToken] = useState(() => sessionStorage.getItem('gdrive_token') || '');
+  const [googleUser, setGoogleUser] = useState(() => {
+    const saved = sessionStorage.getItem('gdrive_user');
+    return saved ? JSON.parse(saved) : null;
+  });
+  const [googleFileId, setGoogleFileId] = useState(() => sessionStorage.getItem('gdrive_file_id') || '');
+  const [isDriveSyncing, setIsDriveSyncing] = useState(false);
 
   // Modals & UI States
   const [isScannerOpen, setIsScannerOpen] = useState(false);
@@ -277,6 +293,7 @@ export default function App() {
       list.unshift(newTx);
     }
     localStorage.setItem('budget_local_transactions', JSON.stringify(list));
+    pushToDrive(list);
 
     // If Google Sheet is linked, send to Sheet directly
     const sheetsUrl = settings?.google_sheets_url || localStorage.getItem('budget_sheets_url');
@@ -308,6 +325,7 @@ export default function App() {
     let list = saved ? JSON.parse(saved) : [];
     list = list.filter(t => t.id !== id);
     localStorage.setItem('budget_local_transactions', JSON.stringify(list));
+    pushToDrive(list);
 
     showToast('🗑️ 내역이 삭제되었습니다.');
     fetchTransactions();
@@ -334,7 +352,85 @@ export default function App() {
     showToast('⚙️ 설정이 안전하게 저장되었습니다.');
   };
 
-  // Google Sheets Sync
+  // Google Drive Cloud Sync Handlers
+  const handleGoogleLogin = () => {
+    const clientId = localStorage.getItem('google_client_id');
+    if (!clientId) {
+      setIsSettingsModalOpen(true);
+      showToast('⚙️ 설정에서 무료 Google OAuth 클라이언트 ID를 먼저 입력해 주세요.');
+      return;
+    }
+
+    try {
+      setIsDriveSyncing(true);
+      const tokenClient = initGoogleAuth(clientId, async (accessToken) => {
+        try {
+          setGoogleToken(accessToken);
+          sessionStorage.setItem('gdrive_token', accessToken);
+
+          // Get User Info
+          const userInfo = await getGoogleUserInfo(accessToken);
+          if (userInfo) {
+            setGoogleUser(userInfo);
+            sessionStorage.setItem('gdrive_user', JSON.stringify(userInfo));
+          }
+
+          // Find or create budget_data.json file in Drive
+          const fileId = await findOrCreateBudgetFile(accessToken);
+          setGoogleFileId(fileId);
+          sessionStorage.setItem('gdrive_file_id', fileId);
+
+          // Load Data from Google Drive
+          const driveData = await loadFromGoogleDrive(accessToken, fileId);
+          if (driveData && Array.isArray(driveData.transactions)) {
+            if (driveData.transactions.length > 0) {
+              setTransactions(driveData.transactions);
+              localStorage.setItem('budget_local_transactions', JSON.stringify(driveData.transactions));
+            }
+          }
+
+          showToast('🎉 구글 드라이브와 연결되어 실시간 동기화됩니다!');
+          fetchStats();
+        } catch (err) {
+          console.error(err);
+          alert('구글 드라이브 연결 중 오류가 발생했습니다: ' + err.message);
+        } finally {
+          setIsDriveSyncing(false);
+        }
+      });
+
+      tokenClient.requestAccessToken({ prompt: 'consent' });
+    } catch (err) {
+      setIsDriveSyncing(false);
+      alert(err.message || 'Google 로그인 초기화 실패');
+    }
+  };
+
+  const handleGoogleLogout = () => {
+    if (confirm('구글 계정 연결을 해제하시겠습니까?')) {
+      setGoogleToken('');
+      setGoogleUser(null);
+      setGoogleFileId('');
+      sessionStorage.removeItem('gdrive_token');
+      sessionStorage.removeItem('gdrive_user');
+      sessionStorage.removeItem('gdrive_file_id');
+      showToast('구글 계정 연결이 해제되었습니다.');
+    }
+  };
+
+  const pushToDrive = async (updatedList) => {
+    if (!googleToken || !googleFileId) return;
+    try {
+      const wishlist = JSON.parse(localStorage.getItem('budget_wishlist') || '[]');
+      await saveToGoogleDrive(googleToken, googleFileId, {
+        transactions: updatedList,
+        wishlist,
+        settings: { monthly_budget: stats?.monthlyBudget || 1200000 }
+      });
+    } catch (err) {
+      console.warn('Google Drive auto-save failed:', err);
+    }
+  };
   const handleSyncGoogleSheets = async () => {
     const sheetsUrl = settings?.google_sheets_url || localStorage.getItem('budget_sheets_url');
     if (!sheetsUrl) {
@@ -410,6 +506,10 @@ export default function App() {
         isSyncing={isSyncing}
         hasApiKey={settings?.hasApiKey}
         hasGoogleSheets={!!settings?.google_sheets_url}
+        googleUser={googleUser}
+        onGoogleLogin={handleGoogleLogin}
+        onGoogleLogout={handleGoogleLogout}
+        isDriveSyncing={isDriveSyncing}
       />
 
       {/* Main Content Container */}

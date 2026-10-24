@@ -80,9 +80,11 @@ export default function SettingsModal({
   const [apiKey, setApiKey] = useState('');
   const [budget, setBudget] = useState('1200000');
   const [googleSheetsUrl, setGoogleSheetsUrl] = useState('');
+  const [googleClientId, setGoogleClientId] = useState('');
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
   const [showCodeBox, setShowCodeBox] = useState(false);
+  const [showDriveGuide, setShowDriveGuide] = useState(false);
   const [restoreStatus, setRestoreStatus] = useState('');
 
   useEffect(() => {
@@ -91,12 +93,15 @@ export default function SettingsModal({
       setBudget(String(settings.monthly_budget || 1200000));
       setGoogleSheetsUrl(settings.google_sheets_url || '');
     }
+    const savedClientId = localStorage.getItem('google_client_id') || '';
+    setGoogleClientId(savedClientId);
   }, [settings, isOpen]);
 
   if (!isOpen) return null;
 
   const handleSave = async (e) => {
     e.preventDefault();
+    localStorage.setItem('google_client_id', googleClientId.trim());
     await onSaveSettings({
       gemini_api_key: apiKey,
       monthly_budget: Number(budget),
@@ -158,7 +163,75 @@ export default function SettingsModal({
         </div>
 
         {/* Content */}
-        <div className="p-5 space-y-5 overflow-y-auto flex-1">
+        <div className="p-5 space-y-4 overflow-y-auto flex-1">
+          {/* 1. Google Drive Sync Section */}
+          <div className="p-4 bg-zinc-50 border border-zinc-200 rounded-2xl space-y-2.5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="w-5 h-5 rounded-md bg-zinc-900 text-white flex items-center justify-center font-bold text-[11px]">
+                  G
+                </span>
+                <h3 className="text-xs sm:text-sm font-bold text-zinc-900">
+                  구글 계정 로그인 & 구글 드라이브 연동
+                </h3>
+              </div>
+              <a
+                href="https://console.cloud.google.com/"
+                target="_blank"
+                rel="noreferrer"
+                className="text-xs text-zinc-600 hover:text-zinc-900 underline font-medium"
+              >
+                클라우드 콘솔 바로가기 ↗
+              </a>
+            </div>
+
+            <p className="text-xs text-zinc-500 leading-relaxed">
+              구글 OAuth 클라이언트 ID를 입력하면, 상단 <strong>Google 로그인</strong> 버튼 하나로 내 개인 구글 드라이브에 자동 실시간 동기화됩니다. (100% 무료)
+            </p>
+
+            <div>
+              <label className="block text-[11px] font-semibold text-zinc-700 mb-1">
+                Google OAuth 클라이언트 ID
+              </label>
+              <input
+                type="text"
+                placeholder="예: 123456789-xxx.apps.googleusercontent.com"
+                value={googleClientId}
+                onChange={(e) => setGoogleClientId(e.target.value)}
+                className="w-full text-xs px-3 py-2 bg-white border border-zinc-200 rounded-xl focus:ring-1 focus:ring-zinc-600 outline-none"
+              />
+            </div>
+
+            <div className="pt-1">
+              <button
+                type="button"
+                onClick={() => setShowDriveGuide(!showDriveGuide)}
+                className="text-xs font-semibold text-zinc-600 hover:text-zinc-900 underline"
+              >
+                {showDriveGuide ? '▲ 클라우드 콘솔 무료 발급 가이드 닫기' : '▼ 2분 클라우드 콘솔 발급 방법 보기 (신용카드 불필요)'}
+              </button>
+
+              {showDriveGuide && (
+                <div className="mt-2 p-3 bg-white rounded-xl border border-zinc-200 text-xs text-zinc-600 space-y-1.5 leading-relaxed">
+                  <p className="font-semibold text-zinc-800">📋 Google Cloud Console 발급 순서:</p>
+                  <ol className="list-decimal list-inside space-y-1 text-[11px]">
+                    <li><a href="https://console.cloud.google.com/" target="_blank" rel="noreferrer" className="text-indigo-600 underline font-bold">Google Cloud Console</a>에 구글 계정으로 로그인합니다.</li>
+                    <li>상단 프로젝트 선택 ➔ <strong>[새 프로젝트]</strong> 클릭 (이름: <code>가계부</code> ➔ 만들기).</li>
+                    <li>좌측 메뉴(≡) ➔ <strong>API 및 서비스 ➔ 사용자 인증 정보</strong> 클릭.</li>
+                    <li>상단 <strong>[+ 사용자 인증 정보 만들기] ➔ [OAuth 클라이언트 ID]</strong> 클릭.</li>
+                    <li>애플리케이션 유형: <strong>웹 애플리케이션</strong> 선택.</li>
+                    <li><strong>승인된 자바스크립트 원본</strong>에 아래 2개 주소 추가:
+                      <div className="bg-zinc-100 p-1.5 rounded my-1 font-mono text-[10px] space-y-0.5">
+                        <div>https://bwaaab.github.io</div>
+                        <div>http://localhost:5000</div>
+                      </div>
+                    </li>
+                    <li><strong>[만들기]</strong>를 누르고 화면에 뜨는 <strong>클라이언트 ID</strong>를 복사해서 위 칸에 붙여넣으면 끝!</li>
+                  </ol>
+                </div>
+              )}
+            </div>
+          </div>
           {/* 1. Google Sheets Integration Section */}
           <div className="p-4 bg-emerald-50/70 border border-emerald-200/80 rounded-2xl space-y-3">
             <div className="flex items-center justify-between">
