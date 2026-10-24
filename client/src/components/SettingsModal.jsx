@@ -50,6 +50,8 @@ const GOOGLE_SCRIPT_CODE = `function doGet(e) {
       for (var j = 1; j < wishValues.length; j++) {
         var w = wishValues[j];
         if (!w[1]) continue;
+        var wDateVal = w[8];
+        var wDateStr = (wDateVal instanceof Date) ? Utilities.formatDate(wDateVal, Session.getScriptTimeZone(), "yyyy-MM-dd") : String(wDateVal || '');
         wishlist.push({
           id: w[0] || j,
           title: String(w[1] || ''),
@@ -59,7 +61,7 @@ const GOOGLE_SCRIPT_CODE = `function doGet(e) {
           status: String(w[5] || 'pending'),
           memo: String(w[6] || ''),
           link: String(w[7] || ''),
-          createdAt: String(w[8] || '')
+          createdAt: wDateStr
         });
       }
     }
@@ -389,9 +391,9 @@ export default function SettingsModal({
                   type="button"
                   onClick={handleTestConnection}
                   disabled={isTesting || !googleSheetsUrl.trim()}
-                  className="px-3 py-2 bg-zinc-900 hover:bg-zinc-800 disabled:opacity-50 text-white rounded-xl text-xs font-semibold flex items-center gap-1 transition flex-shrink-0"
+                  className="px-3 py-2 bg-zinc-900 hover:bg-zinc-800 disabled:opacity-50 text-white rounded-xl text-xs font-semibold flex items-center gap-1 transition whitespace-nowrap flex-shrink-0"
                 >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isTesting ? 'animate-spin' : ''}`} />
+                  <RefreshCw className={`w-3.5 h-3.5 flex-shrink-0 ${isTesting ? 'animate-spin' : ''}`} />
                   <span>연동 & 저장</span>
                 </button>
               </div>

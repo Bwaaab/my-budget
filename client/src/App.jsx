@@ -12,12 +12,13 @@ import ReceiptViewerModal from './components/ReceiptViewerModal';
 import MobileBottomNav from './components/MobileBottomNav';
 import Wishlist from './components/Wishlist';
 import { Sparkles, UploadCloud, Smartphone, Wallet, Heart } from 'lucide-react';
+import { normalizeDateYMD, normalizeTimeHM } from './constants';
 
 // Helper: Client-side stats computation (used on GitHub Pages / Serverless)
 function computeClientStats(txList, year, month, monthlyBudget = 1200000) {
   const monthStr = String(month).padStart(2, '0');
   const pattern = `${year}-${monthStr}`;
-  const monthlyTx = (txList || []).filter(t => (t.date || '').startsWith(pattern));
+  const monthlyTx = (txList || []).filter(t => normalizeDateYMD(t.date).startsWith(pattern));
 
   let totalExpense = 0;
   let totalIncome = 0;
@@ -31,13 +32,14 @@ function computeClientStats(txList, year, month, monthlyBudget = 1200000) {
 
   for (const t of monthlyTx) {
     const amt = Number(t.amount) || 0;
+    const cleanDate = normalizeDateYMD(t.date);
     if (t.type === 'expense') {
       totalExpense += amt;
       catMap[t.category] = (catMap[t.category] || 0) + amt;
-      if (dailyMap[t.date]) dailyMap[t.date].expense += amt;
+      if (dailyMap[cleanDate]) dailyMap[cleanDate].expense += amt;
     } else if (t.type === 'income') {
       totalIncome += amt;
-      if (dailyMap[t.date]) dailyMap[t.date].income += amt;
+      if (dailyMap[cleanDate]) dailyMap[cleanDate].income += amt;
     }
   }
 
@@ -343,11 +345,16 @@ export default function App() {
       if (data && typeof data === 'object' && !Array.isArray(data)) {
         // 1. Transactions — Google Sheets is the Single Source of Truth (respects deletions)
         if (Array.isArray(data.transactions)) {
-          localStorage.setItem('budget_local_transactions', JSON.stringify(data.transactions));
+          const normalizedTx = data.transactions.map(t => ({
+            ...t,
+            date: normalizeDateYMD(t.date),
+            time: normalizeTimeHM(t.time)
+          }));
+          localStorage.setItem('budget_local_transactions', JSON.stringify(normalizedTx));
           const monthStr = String(month).padStart(2, '0');
           const pattern = `${year}-${monthStr}`;
-          setTransactions(data.transactions.filter(t => !t.date || t.date.startsWith(pattern)));
-          txCount = data.transactions.length;
+          setTransactions(normalizedTx.filter(t => !t.date || t.date.startsWith(pattern)));
+          txCount = normalizedTx.length;
         }
 
         // 2. Wishlist + Embedded System Config (__SYS_CONFIG__) — Single Source of Truth
@@ -362,9 +369,12 @@ export default function App() {
               embeddedConfig = JSON.parse(sysRow.memo);
             } catch (_) {}
           }
-          cleanWishlist = data.wishlist.filter(
-            w => w && w.id !== '__SYS_CONFIG__' && w.title !== '__SYS_CONFIG__'
-          );
+          cleanWishlist = data.wishlist
+            .filter(w => w && w.id !== '__SYS_CONFIG__' && w.title !== '__SYS_CONFIG__')
+            .map(w => ({
+              ...w,
+              createdAt: normalizeDateYMD(w.createdAt)
+            }));
           setWishlist(cleanWishlist);
           localStorage.setItem('budget_wishlist', JSON.stringify(cleanWishlist));
           wishCount = cleanWishlist.length;
@@ -770,32 +780,62 @@ export default function App() {
 
       {/* Main Content Container */}
       <main className="max-w-5xl w-full mx-auto px-3 sm:px-6 pt-3 sm:pt-4 space-y-3 sm:space-y-4 flex-1 overflow-x-hidden">
-        {/* View Switcher Tabs (PC & Tablet) */}
-        <div className="flex items-center justify-between pb-1">
-          <div className="flex bg-zinc-200/60 p-0.5 rounded-xl text-xs font-semibold">
+        {/* View Switcher Tabs + Mobile Quick Add */}
+        <div className="flex items-center justify-between gap-2 pb-1">
+          <div className="flex bg-zinc-200/60 p-0.5 rounded-xl text-xs font-semibold flex-shrink-0">
             <button
-              onClick={() => setCurrentView('budget')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition ${
-                currentView === 'budget'
+              onClick={() => {
+                setCurrentView('budget');
+                if (activeMobileTab === 'wishlist') setActiveMobileTab('overview');
+              }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition whitespace-nowrap ${
+                currentView === 'budget' && activeMobileTab !== 'wishlist'
                   ? 'bg-white text-zinc-900 shadow-xs'
                   : 'text-zinc-500 hover:text-zinc-900'
               }`}
             >
-              <Wallet className="w-3.5 h-3.5" />
+              <Wallet className="w-3.5 h-3.5 flex-shrink-0" />
               <span>가계부</span>
             </button>
             <button
-              onClick={() => setCurrentView('wishlist')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition ${
-                currentView === 'wishlist'
+              onClick={() => {
+                setCurrentView('wishlist');
+                setActiveMobileTab('wishlist');
+              }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition whitespace-nowrap ${
+                currentView === 'wishlist' || activeMobileTab === 'wishlist'
                   ? 'bg-white text-zinc-900 shadow-xs'
                   : 'text-zinc-500 hover:text-zinc-900'
               }`}
             >
-              <Heart className={`w-3.5 h-3.5 ${currentView === 'wishlist' ? 'fill-zinc-800' : ''}`} />
+              <Heart className={`w-3.5 h-3.5 flex-shrink-0 ${currentView === 'wishlist' || activeMobileTab === 'wishlist' ? 'fill-zinc-800' : ''}`} />
               <span>위시리스트</span>
             </button>
           </div>
+
+          {currentView === 'budget' && activeMobileTab !== 'wishlist' && (
+            <div className="flex md:hidden items-center gap-1.5 flex-shrink-0">
+              <button
+                onClick={() => {
+                  setInitialFileForScanner(null);
+                  setIsScannerOpen(true);
+                }}
+                className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-white bg-zinc-900 rounded-xl whitespace-nowrap flex-shrink-0"
+              >
+                <Sparkles className="w-3 h-3 flex-shrink-0" />
+                <span>AI 인식</span>
+              </button>
+              <button
+                onClick={() => {
+                  setEditingTx(null);
+                  setIsTxModalOpen(true);
+                }}
+                className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-zinc-700 bg-white border border-zinc-200 rounded-xl whitespace-nowrap flex-shrink-0"
+              >
+                <span>+ 직접 입력</span>
+              </button>
+            </div>
+          )}
         </div>
 
         {currentView === 'wishlist' || activeMobileTab === 'wishlist' ? (
@@ -918,7 +958,10 @@ export default function App() {
       {/* Mobile Fixed Bottom Navigation */}
       <MobileBottomNav
         activeTab={activeMobileTab}
-        setActiveTab={setActiveMobileTab}
+        setActiveTab={(tab) => {
+          setActiveMobileTab(tab);
+          setCurrentView(tab === 'wishlist' ? 'wishlist' : 'budget');
+        }}
         onOpenScanner={() => {
           if (currentView === 'wishlist' || activeMobileTab === 'wishlist') {
             setInitialFileForWishlistScanner(null);

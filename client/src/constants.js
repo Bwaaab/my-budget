@@ -42,3 +42,49 @@ export function formatKRW(amount) {
   if (amount === undefined || amount === null) return '0원';
   return Number(amount).toLocaleString('ko-KR') + '원';
 }
+
+// Normalize any date string (including Google Sheets Date.toString() like "Sat Oct 24 2026 00:00:00 GMT+0900...") to "YYYY-MM-DD"
+export function normalizeDateYMD(raw) {
+  if (!raw) return new Date().toISOString().slice(0, 10);
+  const str = String(raw).trim();
+  const ymdMatch = str.match(/^(\d{4})[-./](\d{1,2})[-./](\d{1,2})/);
+  if (ymdMatch) {
+    return `${ymdMatch[1]}-${ymdMatch[2].padStart(2, '0')}-${ymdMatch[3].padStart(2, '0')}`;
+  }
+  const parsed = new Date(str);
+  if (!isNaN(parsed.getTime())) {
+    const y = parsed.getFullYear();
+    const m = String(parsed.getMonth() + 1).padStart(2, '0');
+    const d = String(parsed.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  return str.slice(0, 10);
+}
+
+// Compact date display for cards & badges: "26.10.24"
+export function formatShortDate(raw) {
+  if (!raw) return '';
+  const ymd = normalizeDateYMD(raw);
+  const match = ymd.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (match) {
+    return `${match[1].slice(2)}.${match[2]}.${match[3]}`;
+  }
+  return ymd;
+}
+
+// Normalize time string (including Google Sheets "Sat Dec 30 1899 14:30:00...") to "HH:mm"
+export function normalizeTimeHM(raw) {
+  if (!raw) return '';
+  const str = String(raw).trim();
+  const hmMatch = str.match(/^(\d{1,2}):(\d{2})/);
+  if (hmMatch) {
+    return `${hmMatch[1].padStart(2, '0')}:${hmMatch[2]}`;
+  }
+  const parsed = new Date(str);
+  if (!isNaN(parsed.getTime())) {
+    const h = String(parsed.getHours()).padStart(2, '0');
+    const m = String(parsed.getMinutes()).padStart(2, '0');
+    return `${h}:${m}`;
+  }
+  return '';
+}

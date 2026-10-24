@@ -89,11 +89,11 @@ export default function Header({
           {/* QR Code Phone Sync button (Desktop & Tablet only) */}
           <button
             onClick={onOpenQrModal}
-            className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-zinc-700 bg-white hover:bg-zinc-50 rounded-xl transition border border-zinc-200"
+            className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-zinc-700 bg-white hover:bg-zinc-50 rounded-xl transition border border-zinc-200 whitespace-nowrap flex-shrink-0"
             title="스마트폰 연결"
           >
-            <QrCode className="w-3.5 h-3.5 text-zinc-600" />
-            <span className="hidden lg:inline text-xs">폰 연결</span>
+            <QrCode className="w-3.5 h-3.5 text-zinc-600 flex-shrink-0" />
+            <span className="hidden lg:inline text-xs whitespace-nowrap">폰 연결</span>
           </button>
 
           {/* Settings button */}
@@ -111,19 +111,19 @@ export default function Header({
           {/* AI Scan Action (Desktop only - Mobile has prominent center floating button) */}
           <button
             onClick={onOpenScanner}
-            className="hidden sm:flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-white bg-zinc-900 hover:bg-zinc-800 rounded-xl shadow-xs transition active:scale-95 flex-shrink-0"
+            className="hidden sm:flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-white bg-zinc-900 hover:bg-zinc-800 rounded-xl shadow-xs transition active:scale-95 whitespace-nowrap flex-shrink-0"
           >
-            <Sparkles className="w-3.5 h-3.5 text-zinc-300" />
-            <span>AI 인식</span>
+            <Sparkles className="w-3.5 h-3.5 text-zinc-300 flex-shrink-0" />
+            <span className="whitespace-nowrap">AI 인식</span>
           </button>
 
           {/* Direct Add Button (Desktop only) */}
           <button
             onClick={onOpenAddModal}
-            className="hidden md:flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-zinc-700 bg-zinc-100 hover:bg-zinc-200/70 rounded-xl border border-zinc-200/60 transition active:scale-95 flex-shrink-0"
+            className="hidden md:flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-zinc-700 bg-zinc-100 hover:bg-zinc-200/70 rounded-xl border border-zinc-200/60 transition active:scale-95 whitespace-nowrap flex-shrink-0"
           >
-            <Plus className="w-3.5 h-3.5" />
-            <span>직접 입력</span>
+            <Plus className="w-3.5 h-3.5 flex-shrink-0" />
+            <span className="whitespace-nowrap">직접 입력</span>
           </button>
         </div>
       </div>
