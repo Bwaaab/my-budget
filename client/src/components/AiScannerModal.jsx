@@ -12,14 +12,16 @@ import {
 } from 'lucide-react';
 import { CATEGORIES, PAYMENT_METHODS, formatKRW } from '../constants';
 
-// Compress & resize image on client (max 1280px, JPEG 0.82) -> reduces 5MB PNG screenshot to ~100KB
+// Compress & resize image on client (max 768px, JPEG 0.80)
+// Why 768px? Gemini Vision processes <=768px images as a SINGLE 258-token tile (vs 6x tokens for >768px),
+// making image queries almost as fast as pure text queries (~0.8-1.2s) while keeping Korean text crisp.
 function compressImageToBase64(file) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     const objectUrl = URL.createObjectURL(file);
     img.onload = () => {
       URL.revokeObjectURL(objectUrl);
-      const MAX_DIM = 1280;
+      const MAX_DIM = 768;
       let { width, height } = img;
       if (width > MAX_DIM || height > MAX_DIM) {
         if (width > height) {
@@ -35,7 +37,7 @@ function compressImageToBase64(file) {
       canvas.height = height;
       const ctx = canvas.getContext('2d');
       ctx.drawImage(img, 0, 0, width, height);
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
       resolve({
         base64: dataUrl.split(',')[1],
         mimeType: 'image/jpeg'
@@ -43,7 +45,6 @@ function compressImageToBase64(file) {
     };
     img.onerror = () => {
       URL.revokeObjectURL(objectUrl);
-      // Fallback to raw FileReader
       const reader = new FileReader();
       reader.onload = () => resolve({ base64: reader.result.split(',')[1], mimeType: file.type || 'image/jpeg' });
       reader.onerror = reject;
@@ -68,26 +69,27 @@ function isExcludedModel(name = '') {
     lower.includes('veo') ||
     lower.includes('aqa') ||
     lower.includes('robotics') ||
-    lower.includes('computer-use')
+    lower.includes('computer-use') ||
+    lower.includes('pro')
   );
 }
 
-// Resolve and cache active multimodal Flash model ID once so we never waste time hitting 404 endpoints with image data
-let cachedActiveModels = null;
+// Prioritize ultra-fast 3.5 Flash-Lite & 3.1 Flash-Lite first, then 3.6 Flash, then 3.8 Flash
+let cachedActiveModel = localStorage.getItem('budget_verified_gemini_model') || null;
+
 async function getOrderedAvailableModels(cleanKey) {
-  if (cachedActiveModels && cachedActiveModels.length > 0) {
-    return cachedActiveModels;
+  if (cachedActiveModel) {
+    return [cachedActiveModel];
   }
 
   const preferredOrder = [
-    'gemini-3.8-flash',
-    'gemini-3.6-flash',
     'gemini-3.5-flash-lite',
     'gemini-3.1-flash-lite',
+    'gemini-3.5-flash-lite-preview',
     'gemini-3.1-flash-lite-preview',
-    'gemini-2.5-flash-lite',
-    'gemini-2.5-flash',
-    'gemini-2.0-flash',
+    'gemini-3.6-flash',
+    'gemini-3.8-flash',
+    'gemini-flash-lite-latest',
     'gemini-flash-latest'
   ];
 
@@ -108,14 +110,17 @@ async function getOrderedAvailableModels(cleanKey) {
         .map(m => m.name.replace(/^models\//, ''));
 
       if (validServerModels.length > 0) {
-        // Rank by preferredOrder first, then any remaining Flash models
+        // Put Flash-Lite models (3.5-flash-lite, 3.1-flash-lite) strictly at the top for maximum speed
+        const liteModels = validServerModels.filter(m => m.includes('flash-lite') || m.includes('lite'));
+        const flashModels = validServerModels.filter(m => m.includes('flash') && !liteModels.includes(m));
         const ranked = [
           ...preferredOrder.filter(p => validServerModels.includes(p)),
-          ...validServerModels.filter(m => m.includes('flash') && !preferredOrder.includes(m)),
-          ...validServerModels.filter(m => !m.includes('flash') && !preferredOrder.includes(m))
+          ...liteModels.filter(m => !preferredOrder.includes(m)),
+          ...flashModels.filter(m => !preferredOrder.includes(m))
         ];
-        cachedActiveModels = ranked;
-        return ranked;
+        if (ranked.length > 0) {
+          return ranked;
+        }
       }
     }
   } catch (_) {}
@@ -125,31 +130,14 @@ async function getOrderedAvailableModels(cleanKey) {
 
 async function analyzeDirectWithGemini(base64Data, mimeType, apiKey) {
   const cleanKey = (apiKey || '').trim();
-  const prompt = `당신은 한국 가계부 영수증 및 결제 내역 캡처본 분석 AI입니다. 마크다운 코드블록 없이 순수 JSON으로만 응답하세요:
-{
-  "type": "expense" 또는 "income",
-  "amount": 금액(숫자),
-  "merchant": "상호명 또는 송금처",
-  "date": "YYYY-MM-DD",
-  "time": "HH:mm",
-  "category": "식비|카페/간식|마트/생필품|교통|문화/여가|쇼핑|의료/건강|주거/통신|급여|기타",
-  "payment_method": "카드 또는 계좌이체 등",
-  "memo": "간단 메모"
-}`;
+  const prompt = `한국 가계부 결제/영수증 이미지에서 아래 JSON만 즉시 출력하세요:
+{"type":"expense","amount":숫자,"merchant":"상호명","date":"YYYY-MM-DD","time":"HH:mm","category":"식비|카페/간식|마트/생필품|교통|문화/여가|쇼핑|의료/건강|주거/통신|급여|기타","payment_method":"카드/이체","memo":"간단요약"}`;
 
   const models = await getOrderedAvailableModels(cleanKey);
 
   const callModel = async (modelName) => {
     const cleanModel = modelName.replace(/^models\//, '');
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${cleanModel}:generateContent?key=${encodeURIComponent(cleanKey)}`;
-    const generationConfig = {
-      temperature: 0.1,
-      response_mime_type: 'application/json'
-    };
-    // Disable thinking delay on 2.5/3.x Flash models so response takes ~1s instead of ~8s
-    if (cleanModel.includes('2.5') || cleanModel.includes('3.')) {
-      generationConfig.thinkingConfig = { thinkingBudget: 0 };
-    }
 
     const res = await fetch(url, {
       method: 'POST',
@@ -161,7 +149,11 @@ async function analyzeDirectWithGemini(base64Data, mimeType, apiKey) {
             { inline_data: { mime_type: mimeType, data: base64Data } }
           ]
         }],
-        generationConfig
+        generationConfig: {
+          temperature: 0,
+          maxOutputTokens: 256,
+          response_mime_type: 'application/json'
+        }
       })
     });
 
@@ -171,32 +163,6 @@ async function analyzeDirectWithGemini(base64Data, mimeType, apiKey) {
         const errJson = await res.json();
         detail = errJson?.error?.message || '';
       } catch (_) {}
-
-      // If model rejected thinkingConfig, retry once without thinkingConfig
-      if (res.status === 400 && detail.includes('thinking')) {
-        delete generationConfig.thinkingConfig;
-        const retryRes = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{
-              parts: [
-                { text: prompt },
-                { inline_data: { mime_type: mimeType, data: base64Data } }
-              ]
-            }],
-            generationConfig
-          })
-        });
-        if (retryRes.ok) {
-          const retryData = await retryRes.json();
-          const retryTxt = retryData.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (retryTxt) {
-            const cleaned = retryTxt.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
-            return JSON.parse(cleaned);
-          }
-        }
-      }
 
       const err = new Error(
         res.status === 400 || res.status === 403
@@ -220,10 +186,14 @@ async function analyzeDirectWithGemini(base64Data, mimeType, apiKey) {
   for (const model of models) {
     try {
       const result = await callModel(model);
-      // Pin working model to the front of the cache for instant future calls!
-      cachedActiveModels = [model, ...models.filter(m => m !== model)];
+      cachedActiveModel = model;
+      localStorage.setItem('budget_verified_gemini_model', model);
       return result;
     } catch (err) {
+      if (cachedActiveModel === model) {
+        cachedActiveModel = null;
+        localStorage.removeItem('budget_verified_gemini_model');
+      }
       if (err.status && err.status !== 404) {
         lastError = err;
       } else if (!lastError) {

@@ -69,16 +69,15 @@ async function recognizeReceiptOrCapture(imageBuffer, mimeType = 'image/jpeg', a
     }
   };
 
-  // 후보군: TTS, Live, Nano Banana(이미지 생성)를 제외한 멀티모달 Flash / Flash-Lite 모델들
+  // 후보군: 가장 빠른 3.5 Flash-Lite / 3.1 Flash-Lite 1순위, 그 다음 3.6 / 3.8 Flash
   const models = [
-    'gemini-3.8-flash',
-    'gemini-3.6-flash',
     'gemini-3.5-flash-lite',
     'gemini-3.1-flash-lite',
+    'gemini-3.5-flash-lite-preview',
     'gemini-3.1-flash-lite-preview',
-    'gemini-2.5-flash',
-    'gemini-2.5-flash-lite',
-    'gemini-flash-latest'
+    'gemini-3.6-flash',
+    'gemini-3.8-flash',
+    'gemini-flash-lite-latest'
   ];
   let lastError = null;
 
