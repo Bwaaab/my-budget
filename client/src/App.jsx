@@ -69,9 +69,11 @@ function computeClientStats(txList, year, month, monthlyBudget = 1200000) {
 // Helper: Serialized POST queue to Google Apps Script Web App (prevents read-before-write race conditions)
 let activeWritePromise = Promise.resolve();
 let lastWriteTimestamp = 0;
+let writeRevision = 0;
 
 async function postToGoogleSheets(sheetsUrl, payload) {
   if (!sheetsUrl || sheetsUrl.includes('/macros/library/')) return;
+  writeRevision++;
   lastWriteTimestamp = Date.now();
   const body = JSON.stringify(payload);
 
@@ -380,7 +382,7 @@ export default function App() {
       return;
     }
 
-    if (silent && Date.now() - lastWriteTimestamp < 2500) {
+    if (silent && Date.now() - lastWriteTimestamp < 6000) {
       return;
     }
 
@@ -388,10 +390,16 @@ export default function App() {
     try {
       // Wait for any pending delete/update/add POST to finish on Google Sheets first
       await activeWritePromise;
+      const startRevision = writeRevision;
 
       const res = await fetch(`${sheetsUrl}${sheetsUrl.includes('?') ? '&' : '?'}_t=${Date.now()}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
+
+      // If user performed a write/add/delete while GET was in flight, discard stale GET response
+      if (writeRevision !== startRevision) {
+        return;
+      }
 
       let txCount = 0;
       let wishCount = 0;
@@ -430,9 +438,55 @@ export default function App() {
               ...w,
               createdAt: normalizeDateYMD(w.createdAt)
             }));
+
+          // One-time recovery of the 2 wishlist items from 2026-10-24 screenshot if one was overwritten by Settings X button
+          let recovered = false;
+          if (!localStorage.getItem('budget_restored_wish_20261024')) {
+            localStorage.setItem('budget_restored_wish_20261024', '1');
+            const snapshotItems = [
+              {
+                id: 1792840000001,
+                title: '첸이보 / 로드 트립 이타백 / 인형 캔뱃지 콘서트 아이돌 직관 굿즈',
+                price: 28900,
+                category: '패션/잡화',
+                priority: 4,
+                status: 'pending',
+                memo: '에스엠라지 / 오프화이트',
+                link: '',
+                createdAt: '2026-10-24'
+              },
+              {
+                id: 1792840000002,
+                title: '삼성 갤럭시 워치9 강화유리 패키지 크림, 40mm, 블루투스',
+                price: 426600,
+                category: '전자기기',
+                priority: 4,
+                status: 'pending',
+                memo: '네이버쇼핑(쇼마젠시), 최대할인가 적용(정가 499,000원), 무료배송',
+                link: '',
+                createdAt: '2026-10-24'
+              }
+            ];
+            for (const snap of snapshotItems) {
+              const exists = cleanWishlist.some(w => w.title && w.title.includes(snap.title.slice(0, 8)));
+              if (!exists) {
+                cleanWishlist.push(snap);
+                recovered = true;
+              }
+            }
+          }
+
           setWishlist(cleanWishlist);
           localStorage.setItem('budget_wishlist', JSON.stringify(cleanWishlist));
           wishCount = cleanWishlist.length;
+
+          if (recovered) {
+            const currentKey = (localStorage.getItem('budget_gemini_key') || '').trim();
+            await postToGoogleSheets(sheetsUrl, {
+              action: 'sync_wishlist',
+              wishlist: buildSyncedWishlistPayload(cleanWishlist, currentKey, localBudget || 400000)
+            });
+          }
         }
 
         // 3. Monthly Budget Target + Gemini API Key Sync
@@ -769,10 +823,19 @@ export default function App() {
         monthly_budget: newBudget,
         gemini_api_key: currentKey
       });
-      await postToGoogleSheets(cleanSheetsUrl, {
-        action: 'sync_wishlist',
-        wishlist: buildSyncedWishlistPayload(wishlist, currentKey, newBudget)
-      });
+
+      // Only update embedded __SYS_CONFIG__ if API key was explicitly updated, using freshest localStorage wishlist
+      if (newSettings.gemini_api_key) {
+        let latestWish = wishlist;
+        try {
+          const savedWish = localStorage.getItem('budget_wishlist');
+          if (savedWish) latestWish = JSON.parse(savedWish);
+        } catch (_) {}
+        await postToGoogleSheets(cleanSheetsUrl, {
+          action: 'sync_wishlist',
+          wishlist: buildSyncedWishlistPayload(latestWish, currentKey, newBudget)
+        });
+      }
     }
 
     showToast('⚙️ 설정이 안전하게 저장 및 동기화되었습니다.');
@@ -996,7 +1059,17 @@ export default function App() {
           setInitialFileForWishlistScanner(null);
         }}
         onAddWishlistItem={(newItem) => {
-          const updated = [newItem, ...wishlist];
+          let currentList = wishlist;
+          try {
+            const saved = localStorage.getItem('budget_wishlist');
+            if (saved) {
+              const parsed = JSON.parse(saved);
+              if (Array.isArray(parsed) && parsed.length >= currentList.length) {
+                currentList = parsed;
+              }
+            }
+          } catch (_) {}
+          const updated = [newItem, ...currentList];
           handleSyncWishlist(updated);
           showToast('🛍️ AI가 인식한 상품이 위시리스트에 등록되었습니다!');
         }}
