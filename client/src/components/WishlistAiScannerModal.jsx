@@ -45,12 +45,34 @@ async function analyzeWishlistWithGemini(base64Data, mimeType, apiKey) {
   "memo": "쇼핑몰 이름(쿠팡, 무신사, 네이버 등), 할인 정보, 옵션/특징 등 한 줄 요약"
 }`;
 
+  // 후보군: TTS, Live, Nano Banana(이미지 생성) 모델을 제외한 멀티모달 Flash / Flash-Lite 모델들
   const models = [
+    'gemini-3.8-flash',
+    'gemini-3.6-flash',
+    'gemini-3.5-flash-lite',
+    'gemini-3.1-flash-lite',
+    'gemini-3.1-flash-lite-preview',
     'gemini-2.5-flash',
-    'gemini-2.0-flash',
-    'gemini-2.0-flash-lite',
+    'gemini-2.5-flash-lite',
     'gemini-flash-latest'
   ];
+
+  // 제외할 특수 목적 모델 키워드 (TTS, Live, Nano Banana 이미지 생성 등)
+  const isExcludedModel = (name = '') => {
+    const lower = name.toLowerCase();
+    return (
+      lower.includes('tts') ||
+      lower.includes('live') ||
+      lower.includes('banana') ||
+      lower.includes('nano') ||
+      lower.includes('image') ||
+      lower.includes('imagen') ||
+      lower.includes('audio') ||
+      lower.includes('embedding') ||
+      lower.includes('veo') ||
+      lower.includes('aqa')
+    );
+  };
 
   const callModel = async (modelName) => {
     const cleanModel = modelName.replace(/^models\//, '');
@@ -112,16 +134,22 @@ async function analyzeWishlistWithGemini(base64Data, mimeType, apiKey) {
     }
   }
 
-  // Fallback: query available models for this API key dynamically
+  // Fallback: query available models for this API key dynamically (excluding TTS, Live, Nano Banana)
   try {
     const listRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(cleanKey)}`);
     if (listRes.ok) {
       const listData = await listRes.json();
-      const dynamicModel = (listData.models || []).find(
-        m => (m.supportedGenerationMethods || []).includes('generateContent') && m.name.includes('gemini')
+      const dynamicCandidates = (listData.models || []).filter(
+        m =>
+          (m.supportedGenerationMethods || []).includes('generateContent') &&
+          m.name.includes('gemini') &&
+          !isExcludedModel(m.name) &&
+          !isExcludedModel(m.displayName)
       );
-      if (dynamicModel) {
-        return await callModel(dynamicModel.name);
+      for (const candidate of dynamicCandidates) {
+        try {
+          return await callModel(candidate.name);
+        } catch (_) {}
       }
     }
   } catch (_) {}

@@ -69,8 +69,17 @@ async function recognizeReceiptOrCapture(imageBuffer, mimeType = 'image/jpeg', a
     }
   };
 
-  // Try active Gemini Flash models in order
-  const models = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-flash-latest'];
+  // 후보군: TTS, Live, Nano Banana(이미지 생성)를 제외한 멀티모달 Flash / Flash-Lite 모델들
+  const models = [
+    'gemini-3.8-flash',
+    'gemini-3.6-flash',
+    'gemini-3.5-flash-lite',
+    'gemini-3.1-flash-lite',
+    'gemini-3.1-flash-lite-preview',
+    'gemini-2.5-flash',
+    'gemini-2.5-flash-lite',
+    'gemini-flash-latest'
+  ];
   let lastError = null;
 
   for (const model of models) {
