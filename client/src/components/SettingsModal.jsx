@@ -226,16 +226,29 @@ export default function SettingsModal({
     setTimeout(() => setSavedSuccess(false), 2000);
   };
 
-  // Auto-save when closing the modal so user changes are never lost
-  const handleCloseWithSave = async () => {
+  // Close immediately (0ms) and only save in background if user actually modified a field
+  const handleCloseWithSave = () => {
     const cleanUrl = googleSheetsUrl.trim();
     const isValidUrl = !cleanUrl || (!cleanUrl.includes('/macros/library/') && cleanUrl.startsWith('http'));
-    await onSaveSettings({
-      gemini_api_key: apiKey,
-      monthly_budget: Number(budget) || 1200000,
-      google_sheets_url: isValidUrl ? cleanUrl : (localStorage.getItem('budget_sheets_url') || '')
-    });
+    const prevKey = (settings?.gemini_api_key || localStorage.getItem('budget_gemini_key') || '').trim();
+    const prevBudget = Number(localStorage.getItem('budget_monthly_target')) || settings?.monthly_budget || 1200000;
+    const prevUrl = (localStorage.getItem('budget_sheets_url') || settings?.google_sheets_url || '').trim();
+
+    const nextKey = apiKey.trim();
+    const nextBudget = Number(budget) || 1200000;
+    const nextUrl = isValidUrl ? cleanUrl : prevUrl;
+
+    // 1. Close modal immediately so X button feels instant
     onClose();
+
+    // 2. If anything changed, persist in background
+    if (nextKey !== prevKey || nextBudget !== prevBudget || nextUrl !== prevUrl) {
+      onSaveSettings({
+        gemini_api_key: nextKey,
+        monthly_budget: nextBudget,
+        google_sheets_url: nextUrl
+      });
+    }
   };
 
   const handleTestConnection = async () => {
@@ -326,16 +339,24 @@ export default function SettingsModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-zinc-900/40 backdrop-blur-xs animate-fade-in">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden border border-zinc-200 flex flex-col max-h-[90vh]">
+    <div
+      onClick={handleCloseWithSave}
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-zinc-900/40 backdrop-blur-xs animate-fade-in"
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden border border-zinc-200 flex flex-col max-h-[90vh]"
+      >
         {/* Header */}
         <div className="px-5 py-3.5 border-b border-zinc-100 flex items-center justify-between">
           <h2 className="text-sm font-bold text-zinc-900">환경 설정</h2>
           <button
+            type="button"
             onClick={handleCloseWithSave}
-            className="p-1 rounded-lg hover:bg-zinc-100 text-zinc-400 hover:text-zinc-600 transition"
+            className="p-2 -mr-1.5 rounded-xl hover:bg-zinc-100 text-zinc-500 hover:text-zinc-900 transition cursor-pointer"
+            aria-label="닫기"
           >
-            <X className="w-4 h-4" />
+            <X className="w-5 h-5" />
           </button>
         </div>
 
