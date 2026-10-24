@@ -33,8 +33,9 @@ function fileToBase64(file) {
 }
 
 async function analyzeWishlistWithGemini(base64Data, mimeType, apiKey) {
+  const cleanKey = (apiKey || '').trim();
   const prompt = `당신은 쇼핑몰 상품 캡처본 및 위시리스트 분석 전문 AI입니다.
-이미지에서 사고 싶은 상품의 정보를 추출하여 반드시 아래 JSON 형식으로만 응답하세요:
+이미지에서 사고 싶은 상품의 정보를 추출하여 마크다운 코드블록 없이 반드시 아래 순수 JSON 형식으로만 응답하세요:
 {
   "title": "깔끔하게 정리된 브랜드 + 상품명",
   "price": 최종할인가또는판매가(숫자만, 원 단위),
@@ -44,39 +45,86 @@ async function analyzeWishlistWithGemini(base64Data, mimeType, apiKey) {
   "memo": "쇼핑몰 이름(쿠팡, 무신사, 네이버 등), 할인 정보, 옵션/특징 등 한 줄 요약"
 }`;
 
-  const models = ['gemini-3.8-flash', 'gemini-2.5-flash', 'gemini-1.5-flash'];
-  let lastError = null;
+  const models = [
+    'gemini-2.5-flash',
+    'gemini-2.0-flash',
+    'gemini-2.0-flash-lite',
+    'gemini-flash-latest'
+  ];
 
+  const callModel = async (modelName) => {
+    const cleanModel = modelName.replace(/^models\//, '');
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${cleanModel}:generateContent?key=${encodeURIComponent(cleanKey)}`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{
+          parts: [
+            { text: prompt },
+            { inline_data: { mime_type: mimeType, data: base64Data } }
+          ]
+        }],
+        generationConfig: {
+          temperature: 0.1,
+          response_mime_type: 'application/json'
+        }
+      })
+    });
+
+    if (!res.ok) {
+      let detail = '';
+      try {
+        const errJson = await res.json();
+        detail = errJson?.error?.message || '';
+      } catch (_) {}
+      const err = new Error(
+        res.status === 400 || res.status === 403
+          ? 'API 키가 유효하지 않거나 권한이 없습니다. 설정에서 Gemini API 키를 확인해 주세요.'
+          : res.status === 429
+          ? '무료 AI 호출 한도(분당 요청 수)를 초과했습니다. 잠시 후 다시 시도해 주세요.'
+          : `AI 서버 응답 오류 (${res.status}${detail ? ': ' + detail : ''})`
+      );
+      err.status = res.status;
+      throw err;
+    }
+
+    const data = await res.json();
+    const txt = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!txt) throw new Error('AI 응답이 비어 있습니다.');
+    const cleaned = txt.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
+    return JSON.parse(cleaned);
+  };
+
+  let lastError = null;
   for (const model of models) {
     try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{
-            parts: [
-              { text: prompt },
-              { inline_data: { mime_type: mimeType, data: base64Data } }
-            ]
-          }],
-          generationConfig: { response_mime_type: 'application/json' }
-        })
-      });
-
-      if (!res.ok) {
-        throw new Error(`API ${res.status}`);
-      }
-
-      const data = await res.json();
-      const txt = data.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (txt) {
-        return JSON.parse(txt);
-      }
+      return await callModel(model);
     } catch (err) {
-      lastError = err;
+      if (err.status && err.status !== 404) {
+        lastError = err;
+      } else if (!lastError) {
+        lastError = err;
+      }
+      if (err.status === 400 || err.status === 403) {
+        throw err;
+      }
     }
   }
+
+  // Fallback: query available models for this API key dynamically
+  try {
+    const listRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(cleanKey)}`);
+    if (listRes.ok) {
+      const listData = await listRes.json();
+      const dynamicModel = (listData.models || []).find(
+        m => (m.supportedGenerationMethods || []).includes('generateContent') && m.name.includes('gemini')
+      );
+      if (dynamicModel) {
+        return await callModel(dynamicModel.name);
+      }
+    }
+  } catch (_) {}
 
   throw lastError || new Error('위시리스트 상품 AI 분석에 실패했습니다.');
 }

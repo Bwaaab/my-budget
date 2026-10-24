@@ -69,8 +69,8 @@ async function recognizeReceiptOrCapture(imageBuffer, mimeType = 'image/jpeg', a
     }
   };
 
-  // Try gemini-3.8-flash first, fallback to 2.5 and 1.5
-  const models = ['gemini-3.8-flash', 'gemini-2.5-flash', 'gemini-1.5-flash'];
+  // Try active Gemini Flash models in order
+  const models = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-flash-latest'];
   let lastError = null;
 
   for (const model of models) {
