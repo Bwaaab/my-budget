@@ -64,26 +64,38 @@ function computeClientStats(txList, year, month, monthlyBudget = 1200000) {
   };
 }
 
-// Helper: Send POST payload to Google Apps Script Web App
+// Helper: Serialized POST queue to Google Apps Script Web App (prevents read-before-write race conditions)
+let activeWritePromise = Promise.resolve();
+let lastWriteTimestamp = 0;
+
 async function postToGoogleSheets(sheetsUrl, payload) {
   if (!sheetsUrl || sheetsUrl.includes('/macros/library/')) return;
+  lastWriteTimestamp = Date.now();
   const body = JSON.stringify(payload);
-  try {
-    await fetch(sheetsUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body
-    });
-  } catch (_) {
+
+  const task = activeWritePromise.then(async () => {
     try {
       await fetch(sheetsUrl, {
         method: 'POST',
-        mode: 'no-cors',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body
       });
-    } catch (__) {}
-  }
+    } catch (_) {
+      try {
+        await fetch(sheetsUrl, {
+          method: 'POST',
+          mode: 'no-cors',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body
+        });
+      } catch (__) {}
+    } finally {
+      lastWriteTimestamp = Date.now();
+    }
+  });
+
+  activeWritePromise = task.catch(() => {});
+  return task;
 }
 
 export default function App() {
@@ -282,8 +294,15 @@ export default function App() {
       return;
     }
 
+    if (silent && Date.now() - lastWriteTimestamp < 2500) {
+      return;
+    }
+
     setIsSyncing(true);
     try {
+      // Wait for any pending delete/update/add POST to finish on Google Sheets first
+      await activeWritePromise;
+
       const res = await fetch(`${sheetsUrl}${sheetsUrl.includes('?') ? '&' : '?'}_t=${Date.now()}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
@@ -293,43 +312,20 @@ export default function App() {
       const localBudget = Number(overrideLocalBudget) || Number(localStorage.getItem('budget_monthly_target')) || 0;
 
       if (data && typeof data === 'object' && !Array.isArray(data)) {
-        // 1. Transactions
+        // 1. Transactions — Google Sheets is the Single Source of Truth (respects deletions)
         if (Array.isArray(data.transactions)) {
-          let localTx = [];
-          try {
-            localTx = JSON.parse(localStorage.getItem('budget_local_transactions') || '[]');
-          } catch (_) {}
-
-          if (data.transactions.length === 0 && localTx.length > 0) {
-            // Sheet is empty but device has local transactions -> push local transactions to sheet
-            for (const tx of localTx) {
-              await postToGoogleSheets(sheetsUrl, { action: 'add_transaction', ...tx });
-            }
-            txCount = localTx.length;
-          } else {
-            localStorage.setItem('budget_local_transactions', JSON.stringify(data.transactions));
-            const monthStr = String(month).padStart(2, '0');
-            const pattern = `${year}-${monthStr}`;
-            setTransactions(data.transactions.filter(t => !t.date || t.date.startsWith(pattern)));
-            txCount = data.transactions.length;
-          }
+          localStorage.setItem('budget_local_transactions', JSON.stringify(data.transactions));
+          const monthStr = String(month).padStart(2, '0');
+          const pattern = `${year}-${monthStr}`;
+          setTransactions(data.transactions.filter(t => !t.date || t.date.startsWith(pattern)));
+          txCount = data.transactions.length;
         }
 
-        // 2. Wishlist
+        // 2. Wishlist — Google Sheets is the Single Source of Truth (respects deletions)
         if (Array.isArray(data.wishlist)) {
-          let localWish = [];
-          try {
-            localWish = JSON.parse(localStorage.getItem('budget_wishlist') || '[]');
-          } catch (_) {}
-
-          if (data.wishlist.length === 0 && localWish.length > 0) {
-            await postToGoogleSheets(sheetsUrl, { action: 'sync_wishlist', wishlist: localWish });
-            wishCount = localWish.length;
-          } else {
-            setWishlist(data.wishlist);
-            localStorage.setItem('budget_wishlist', JSON.stringify(data.wishlist));
-            wishCount = data.wishlist.length;
-          }
+          setWishlist(data.wishlist);
+          localStorage.setItem('budget_wishlist', JSON.stringify(data.wishlist));
+          wishCount = data.wishlist.length;
         }
 
         // 3. Monthly Budget Target
