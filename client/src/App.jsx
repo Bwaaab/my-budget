@@ -193,6 +193,61 @@ export default function App() {
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
 
+  // PWA App Installation state (for mobile Chrome / Safari)
+  const [deferredPrompt, setDeferredPrompt] = useState(() => window.__deferredPwaPrompt || null);
+  const [isStandalone, setIsStandalone] = useState(() => {
+    return (
+      window.matchMedia?.('(display-mode: standalone)').matches ||
+      window.navigator?.standalone === true
+    );
+  });
+  const [hideInstallBanner, setHideInstallBanner] = useState(() => {
+    return sessionStorage.getItem('budget_hide_pwa_banner') === '1';
+  });
+  const [isInstallGuideOpen, setIsInstallGuideOpen] = useState(false);
+
+  useEffect(() => {
+    const onPromptReady = () => {
+      if (window.__deferredPwaPrompt) {
+        setDeferredPrompt(window.__deferredPwaPrompt);
+      }
+    };
+    const onBeforeInstall = (e) => {
+      e.preventDefault();
+      window.__deferredPwaPrompt = e;
+      setDeferredPrompt(e);
+    };
+    const onAppInstalled = () => {
+      setIsStandalone(true);
+      setDeferredPrompt(null);
+      window.__deferredPwaPrompt = null;
+      showToast('🎉 가계부 앱이 홈 화면에 설치되었습니다!');
+    };
+
+    window.addEventListener('pwa-prompt-ready', onPromptReady);
+    window.addEventListener('beforeinstallprompt', onBeforeInstall);
+    window.addEventListener('appinstalled', onAppInstalled);
+    return () => {
+      window.removeEventListener('pwa-prompt-ready', onPromptReady);
+      window.removeEventListener('beforeinstallprompt', onBeforeInstall);
+      window.removeEventListener('appinstalled', onAppInstalled);
+    };
+  }, []);
+
+  const handleInstallPwa = async () => {
+    const promptEvent = deferredPrompt || window.__deferredPwaPrompt;
+    if (promptEvent) {
+      promptEvent.prompt();
+      const { outcome } = await promptEvent.userChoice;
+      if (outcome === 'accepted') {
+        setDeferredPrompt(null);
+        window.__deferredPwaPrompt = null;
+      }
+    } else {
+      setIsInstallGuideOpen(true);
+    }
+  };
+
   const showToast = (msg) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(''), 3000);
@@ -780,6 +835,39 @@ export default function App() {
 
       {/* Main Content Container */}
       <main className="max-w-5xl w-full mx-auto px-3 sm:px-6 pt-3 sm:pt-4 space-y-3 sm:space-y-4 flex-1 overflow-x-hidden">
+        {/* Mobile PWA App Install Banner (Hidden on PC or once installed as standalone app) */}
+        {!isStandalone && !hideInstallBanner && (
+          <div className="md:hidden bg-zinc-900 text-white rounded-2xl p-3 flex items-center justify-between gap-2 shadow-xs">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-8 h-8 rounded-xl bg-zinc-800 flex items-center justify-center flex-shrink-0 border border-zinc-700">
+                <Smartphone className="w-4 h-4 text-zinc-200" />
+              </div>
+              <div className="min-w-0">
+                <div className="text-xs font-bold text-white truncate">홈 화면에 가계부 앱 설치</div>
+                <div className="text-[10px] text-zinc-400 truncate">크롬 주소창 없이 진짜 앱처럼 1초 만에 실행</div>
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5 flex-shrink-0">
+              <button
+                onClick={handleInstallPwa}
+                className="px-3 py-1.5 bg-white hover:bg-zinc-100 text-zinc-900 font-bold text-xs rounded-xl transition active:scale-95 whitespace-nowrap flex-shrink-0"
+              >
+                앱 설치
+              </button>
+              <button
+                onClick={() => {
+                  setHideInstallBanner(true);
+                  sessionStorage.setItem('budget_hide_pwa_banner', '1');
+                }}
+                className="p-1 text-zinc-400 hover:text-white rounded-lg transition flex-shrink-0"
+                aria-label="배너 닫기"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* View Switcher Tabs + Mobile Quick Add */}
         <div className="flex items-center justify-between gap-2 pb-1">
           <div className="flex bg-zinc-200/60 p-0.5 rounded-xl text-xs font-semibold flex-shrink-0">
@@ -954,6 +1042,55 @@ export default function App() {
         onClose={() => setViewingReceiptPath('')}
         imagePath={viewingReceiptPath}
       />
+
+      {/* Mobile PWA Install Guide Modal (Fallback for iOS or when Chrome menu install is needed) */}
+      {isInstallGuideOpen && (
+        <div
+          onClick={() => setIsInstallGuideOpen(false)}
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-900/50 backdrop-blur-xs animate-fade-in"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden border border-zinc-200 p-5 space-y-4"
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Smartphone className="w-4 h-4 text-zinc-900" />
+                <h3 className="text-sm font-bold text-zinc-900">폰 홈 화면에 앱 설치하기</h3>
+              </div>
+              <button
+                onClick={() => setIsInstallGuideOpen(false)}
+                className="p-1.5 -mr-1 text-zinc-400 hover:text-zinc-900 rounded-lg"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs text-zinc-700 leading-relaxed">
+              <div className="p-3 bg-zinc-50 rounded-xl border border-zinc-200 space-y-1">
+                <div className="font-bold text-zinc-900">🤖 갤럭시 / 안드로이드 (크롬)</div>
+                <p className="text-zinc-600 break-keep">
+                  크롬 우측 상단 <strong>점 3개(⋮) 메뉴</strong>를 누른 뒤 <strong>[앱 설치]</strong> 또는 <strong>[홈 화면에 추가]</strong>를 누르면 바탕화면에 진짜 앱 아이콘이 생성됩니다!
+                </p>
+              </div>
+
+              <div className="p-3 bg-zinc-50 rounded-xl border border-zinc-200 space-y-1">
+                <div className="font-bold text-zinc-900">🍎 아이폰 (Safari / 크롬)</div>
+                <p className="text-zinc-600 break-keep">
+                  화면 하단(또는 주소창 옆) <strong>공유 버튼 [↑]</strong>을 누른 뒤 아래로 내려 <strong>[홈 화면에 추가]</strong>를 누르면 앱처럼 바로 실행됩니다!
+                </p>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setIsInstallGuideOpen(false)}
+              className="w-full py-2.5 bg-zinc-900 hover:bg-zinc-800 text-white font-bold text-xs rounded-xl transition"
+            >
+              확인했어요
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Mobile Fixed Bottom Navigation */}
       <MobileBottomNav
