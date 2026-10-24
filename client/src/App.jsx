@@ -741,6 +741,9 @@ export default function App() {
               setInitialFileForWishlistScanner(null);
               setIsWishlistScannerOpen(true);
             }}
+            hasGoogleSheets={!!(settings?.google_sheets_url || localStorage.getItem('budget_sheets_url'))}
+            onPullFromGoogleSheets={() => handleSyncGoogleSheets()}
+            isSyncing={isSyncing}
           />
         ) : (
           <>

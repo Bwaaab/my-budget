@@ -8,7 +8,9 @@ import {
   ShoppingBag,
   Star,
   CheckCircle2,
-  Sparkles
+  Sparkles,
+  Edit2,
+  RefreshCw
 } from 'lucide-react';
 import { formatKRW } from '../constants';
 
@@ -18,7 +20,10 @@ export default function Wishlist({
   remainingBudget = 0,
   onConvertToExpense,
   onSyncWishlist,
-  onOpenWishlistScanner
+  onOpenWishlistScanner,
+  hasGoogleSheets = false,
+  onPullFromGoogleSheets,
+  isSyncing = false
 }) {
   const [localItems, setLocalItems] = useState(() => {
     const saved = localStorage.getItem('budget_wishlist');
@@ -31,6 +36,7 @@ export default function Wishlist({
   const items = externalItems !== undefined ? externalItems : localItems;
 
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [editingId, setEditingId] = useState(null);
   const [filter, setFilter] = useState('pending');
 
   const [formData, setFormData] = useState({
@@ -63,23 +69,67 @@ export default function Wishlist({
     }
   }, [externalItems]);
 
+  const handleOpenAdd = () => {
+    setEditingId(null);
+    setFormData({
+      title: '',
+      price: '',
+      category: '쇼핑',
+      priority: 5,
+      link: '',
+      memo: ''
+    });
+    setIsAddModalOpen(true);
+  };
+
+  const handleOpenEdit = (item) => {
+    setEditingId(item.id);
+    setFormData({
+      title: item.title || '',
+      price: String(item.price || ''),
+      category: item.category || '쇼핑',
+      priority: item.priority || 4,
+      link: item.link || '',
+      memo: item.memo || ''
+    });
+    setIsAddModalOpen(true);
+  };
+
   const handleAddItem = (e) => {
     e.preventDefault();
     if (!formData.title || !formData.price) return;
 
-    const newItem = {
-      id: Date.now(),
-      title: formData.title.trim(),
-      price: Number(formData.price),
-      category: formData.category,
-      priority: Number(formData.priority) || 3,
-      link: formData.link.trim(),
-      memo: formData.memo.trim(),
-      status: 'pending',
-      createdAt: new Date().toISOString().slice(0, 10)
-    };
+    if (editingId) {
+      const updated = items.map(item =>
+        item.id === editingId
+          ? {
+              ...item,
+              title: formData.title.trim(),
+              price: Number(formData.price),
+              category: formData.category,
+              priority: Number(formData.priority) || 3,
+              link: formData.link.trim(),
+              memo: formData.memo.trim()
+            }
+          : item
+      );
+      updateItems(updated);
+    } else {
+      const newItem = {
+        id: Date.now(),
+        title: formData.title.trim(),
+        price: Number(formData.price),
+        category: formData.category,
+        priority: Number(formData.priority) || 3,
+        link: formData.link.trim(),
+        memo: formData.memo.trim(),
+        status: 'pending',
+        createdAt: new Date().toISOString().slice(0, 10)
+      };
+      updateItems([newItem, ...items]);
+    }
 
-    updateItems([newItem, ...items]);
+    setEditingId(null);
     setFormData({
       title: '',
       price: '',
@@ -158,7 +208,7 @@ export default function Wishlist({
             </button>
           )}
           <button
-            onClick={() => setIsAddModalOpen(true)}
+            onClick={handleOpenAdd}
             className="px-3.5 py-2 bg-zinc-800 hover:bg-zinc-700 text-white border border-zinc-700 font-bold text-xs rounded-xl shadow-xs transition active:scale-95 flex items-center gap-1.5"
           >
             <Plus className="w-3.5 h-3.5" />
@@ -167,8 +217,8 @@ export default function Wishlist({
         </div>
       </div>
 
-      {/* Filter Tabs */}
-      <div className="flex items-center justify-between gap-2">
+      {/* Filter Tabs + Google Sheets Sync Status */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex bg-zinc-100 p-0.5 rounded-xl text-xs font-semibold">
           <button
             onClick={() => setFilter('pending')}
@@ -195,6 +245,26 @@ export default function Wishlist({
             전체 ({items.length})
           </button>
         </div>
+
+        {/* Google Sheets Wishlist Sync Indicator */}
+        {onPullFromGoogleSheets && (
+          <button
+            onClick={onPullFromGoogleSheets}
+            disabled={isSyncing}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-zinc-50 border border-zinc-200 rounded-xl text-[11px] font-semibold text-zinc-700 transition shadow-2xs"
+            title="구글 시트의 '위시리스트' 탭과 즉시 동기화"
+          >
+            <span className={`w-2 h-2 rounded-full ${hasGoogleSheets ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+            <RefreshCw className={`w-3 h-3 text-zinc-500 ${isSyncing ? 'animate-spin' : ''}`} />
+            <span>
+              {isSyncing
+                ? '시트 동기화 중...'
+                : hasGoogleSheets
+                ? "구글 시트 '위시리스트' 탭 자동 연동 중"
+                : '구글 시트 연동 설정하기'}
+            </span>
+          </button>
+        )}
       </div>
 
       {/* Wishlist Cards Grid */}
@@ -216,7 +286,7 @@ export default function Wishlist({
               </button>
             )}
             <button
-              onClick={() => setIsAddModalOpen(true)}
+              onClick={handleOpenAdd}
               className="px-3.5 py-1.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 font-bold text-xs rounded-xl transition"
             >
               + 직접 입력
@@ -318,6 +388,13 @@ export default function Wishlist({
                       </button>
                     )}
                     <button
+                      onClick={() => handleOpenEdit(item)}
+                      className="p-1 text-zinc-400 hover:text-zinc-900 hover:bg-zinc-100 rounded-lg transition"
+                      title="수정"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" />
+                    </button>
+                    <button
                       onClick={() => handleDeleteItem(item.id)}
                       className="p-1 text-zinc-400 hover:text-rose-600 hover:bg-zinc-100 rounded-lg transition"
                       title="삭제"
@@ -332,13 +409,13 @@ export default function Wishlist({
         </div>
       )}
 
-      {/* Add Modal */}
+      {/* Add / Edit Modal */}
       {isAddModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-zinc-900/40 backdrop-blur-xs animate-fade-in">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden border border-zinc-200 flex flex-col">
             <div className="px-5 py-3.5 border-b border-zinc-100 flex items-center justify-between">
               <h2 className="text-sm font-bold text-zinc-900">
-                위시리스트 등록
+                {editingId ? '위시리스트 수정' : '위시리스트 직접 등록'}
               </h2>
               <button
                 onClick={() => setIsAddModalOpen(false)}
