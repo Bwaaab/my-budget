@@ -12,13 +12,115 @@ import {
 } from 'lucide-react';
 import { CATEGORIES, PAYMENT_METHODS, formatKRW } from '../constants';
 
-function fileToBase64(file) {
+// Compress & resize image on client (max 1280px, JPEG 0.82) -> reduces 5MB PNG screenshot to ~100KB
+function compressImageToBase64(file) {
   return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result.split(',')[1]);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
+    const img = new Image();
+    const objectUrl = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      const MAX_DIM = 1280;
+      let { width, height } = img;
+      if (width > MAX_DIM || height > MAX_DIM) {
+        if (width > height) {
+          height = Math.round((height * MAX_DIM) / width);
+          width = MAX_DIM;
+        } else {
+          width = Math.round((width * MAX_DIM) / height);
+          height = MAX_DIM;
+        }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, width, height);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+      resolve({
+        base64: dataUrl.split(',')[1],
+        mimeType: 'image/jpeg'
+      });
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      // Fallback to raw FileReader
+      const reader = new FileReader();
+      reader.onload = () => resolve({ base64: reader.result.split(',')[1], mimeType: file.type || 'image/jpeg' });
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    };
+    img.src = objectUrl;
   });
+}
+
+// 제외할 특수 목적 모델 키워드 (TTS, Live, Nano Banana 이미지 생성 등)
+function isExcludedModel(name = '') {
+  const lower = name.toLowerCase();
+  return (
+    lower.includes('tts') ||
+    lower.includes('live') ||
+    lower.includes('banana') ||
+    lower.includes('nano') ||
+    lower.includes('image') ||
+    lower.includes('imagen') ||
+    lower.includes('audio') ||
+    lower.includes('embedding') ||
+    lower.includes('veo') ||
+    lower.includes('aqa') ||
+    lower.includes('robotics') ||
+    lower.includes('computer-use')
+  );
+}
+
+// Resolve and cache active multimodal Flash model ID once so we never waste time hitting 404 endpoints with image data
+let cachedActiveModels = null;
+async function getOrderedAvailableModels(cleanKey) {
+  if (cachedActiveModels && cachedActiveModels.length > 0) {
+    return cachedActiveModels;
+  }
+
+  const preferredOrder = [
+    'gemini-3.8-flash',
+    'gemini-3.6-flash',
+    'gemini-3.5-flash-lite',
+    'gemini-3.1-flash-lite',
+    'gemini-3.1-flash-lite-preview',
+    'gemini-2.5-flash-lite',
+    'gemini-2.5-flash',
+    'gemini-2.0-flash',
+    'gemini-flash-latest'
+  ];
+
+  try {
+    const listRes = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(cleanKey)}`
+    );
+    if (listRes.ok) {
+      const listData = await listRes.json();
+      const validServerModels = (listData.models || [])
+        .filter(
+          m =>
+            (m.supportedGenerationMethods || []).includes('generateContent') &&
+            m.name.includes('gemini') &&
+            !isExcludedModel(m.name) &&
+            !isExcludedModel(m.displayName)
+        )
+        .map(m => m.name.replace(/^models\//, ''));
+
+      if (validServerModels.length > 0) {
+        // Rank by preferredOrder first, then any remaining Flash models
+        const ranked = [
+          ...preferredOrder.filter(p => validServerModels.includes(p)),
+          ...validServerModels.filter(m => m.includes('flash') && !preferredOrder.includes(m)),
+          ...validServerModels.filter(m => !m.includes('flash') && !preferredOrder.includes(m))
+        ];
+        cachedActiveModels = ranked;
+        return ranked;
+      }
+    }
+  } catch (_) {}
+
+  return preferredOrder;
 }
 
 async function analyzeDirectWithGemini(base64Data, mimeType, apiKey) {
@@ -35,39 +137,20 @@ async function analyzeDirectWithGemini(base64Data, mimeType, apiKey) {
   "memo": "간단 메모"
 }`;
 
-  // 후보군: TTS, Live, Nano Banana(이미지 생성) 모델을 제외한 멀티모달 Flash / Flash-Lite 모델들
-  const models = [
-    'gemini-3.8-flash',
-    'gemini-3.6-flash',
-    'gemini-3.5-flash-lite',
-    'gemini-3.1-flash-lite',
-    'gemini-3.1-flash-lite-preview',
-    'gemini-2.5-flash',
-    'gemini-2.5-flash-lite',
-    'gemini-flash-latest'
-  ];
+  const models = await getOrderedAvailableModels(cleanKey);
 
-  // 제외할 특수 목적 모델 키워드 (TTS, Live, Nano Banana 이미지 생성 등)
-  const isExcludedModel = (name = '') => {
-    const lower = name.toLowerCase();
-    return (
-      lower.includes('tts') ||
-      lower.includes('live') ||
-      lower.includes('banana') ||
-      lower.includes('nano') ||
-      lower.includes('image') ||
-      lower.includes('imagen') ||
-      lower.includes('audio') ||
-      lower.includes('embedding') ||
-      lower.includes('veo') ||
-      lower.includes('aqa')
-    );
-  };
-
-  // If needed, dynamically discover available model from ListModels
   const callModel = async (modelName) => {
     const cleanModel = modelName.replace(/^models\//, '');
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${cleanModel}:generateContent?key=${encodeURIComponent(cleanKey)}`;
+    const generationConfig = {
+      temperature: 0.1,
+      response_mime_type: 'application/json'
+    };
+    // Disable thinking delay on 2.5/3.x Flash models so response takes ~1s instead of ~8s
+    if (cleanModel.includes('2.5') || cleanModel.includes('3.')) {
+      generationConfig.thinkingConfig = { thinkingBudget: 0 };
+    }
+
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -78,10 +161,7 @@ async function analyzeDirectWithGemini(base64Data, mimeType, apiKey) {
             { inline_data: { mime_type: mimeType, data: base64Data } }
           ]
         }],
-        generationConfig: {
-          temperature: 0.1,
-          response_mime_type: 'application/json'
-        }
+        generationConfig
       })
     });
 
@@ -91,6 +171,33 @@ async function analyzeDirectWithGemini(base64Data, mimeType, apiKey) {
         const errJson = await res.json();
         detail = errJson?.error?.message || '';
       } catch (_) {}
+
+      // If model rejected thinkingConfig, retry once without thinkingConfig
+      if (res.status === 400 && detail.includes('thinking')) {
+        delete generationConfig.thinkingConfig;
+        const retryRes = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{
+              parts: [
+                { text: prompt },
+                { inline_data: { mime_type: mimeType, data: base64Data } }
+              ]
+            }],
+            generationConfig
+          })
+        });
+        if (retryRes.ok) {
+          const retryData = await retryRes.json();
+          const retryTxt = retryData.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (retryTxt) {
+            const cleaned = retryTxt.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
+            return JSON.parse(cleaned);
+          }
+        }
+      }
+
       const err = new Error(
         res.status === 400 || res.status === 403
           ? 'API 키가 유효하지 않거나 권한이 없습니다. 설정에서 Gemini API 키를 확인해 주세요.'
@@ -112,39 +219,21 @@ async function analyzeDirectWithGemini(base64Data, mimeType, apiKey) {
   let lastError = null;
   for (const model of models) {
     try {
-      return await callModel(model);
+      const result = await callModel(model);
+      // Pin working model to the front of the cache for instant future calls!
+      cachedActiveModels = [model, ...models.filter(m => m !== model)];
+      return result;
     } catch (err) {
       if (err.status && err.status !== 404) {
         lastError = err;
       } else if (!lastError) {
         lastError = err;
       }
-      // If key itself is invalid (400/403), stop immediately
       if (err.status === 400 || err.status === 403) {
         throw err;
       }
     }
   }
-
-  // Fallback: query available models for this API key dynamically (excluding TTS, Live, Nano Banana)
-  try {
-    const listRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(cleanKey)}`);
-    if (listRes.ok) {
-      const listData = await listRes.json();
-      const dynamicCandidates = (listData.models || []).filter(
-        m =>
-          (m.supportedGenerationMethods || []).includes('generateContent') &&
-          m.name.includes('gemini') &&
-          !isExcludedModel(m.name) &&
-          !isExcludedModel(m.displayName)
-      );
-      for (const candidate of dynamicCandidates) {
-        try {
-          return await callModel(candidate.name);
-        } catch (_) {}
-      }
-    }
-  } catch (_) {}
 
   throw lastError || new Error('AI 분석 실패');
 }
@@ -216,34 +305,32 @@ export default function AiScannerModal({
 
     try {
       let data = null;
+      const apiKey = (localStorage.getItem('budget_gemini_key') || '').trim();
 
-      // 1. Try backend server if available
-      try {
-        const form = new FormData();
-        form.append('image', selectedFile);
-        const res = await fetch('/api/ai/recognize', {
-          method: 'POST',
-          body: form
-        });
-        if (res.ok) {
-          data = await res.json();
-        }
-      } catch (_) {
-        // Backend not available (e.g. running statically on GitHub Pages)
+      // 1. Direct Client-side Gemini (Fastest — uses compressed image & cached model without extra hop)
+      if (apiKey) {
+        const { base64, mimeType } = await compressImageToBase64(selectedFile);
+        const extracted = await analyzeDirectWithGemini(base64, mimeType, apiKey);
+        data = { success: true, extracted, savedImagePath: objectUrl };
+      } else if (!window.location.hostname.includes('github.io')) {
+        // 2. Fallback to local backend server only if no client API key is stored
+        try {
+          const form = new FormData();
+          form.append('image', selectedFile);
+          const res = await fetch('/api/ai/recognize', {
+            method: 'POST',
+            body: form
+          });
+          if (res.ok) {
+            data = await res.json();
+          }
+        } catch (_) {}
       }
 
-      // 2. Direct Client-side Gemini Fallback (for GitHub Pages / Serverless)
       if (!data) {
-        const apiKey = localStorage.getItem('budget_gemini_key') || '';
-        if (!apiKey) {
-          setRequiresKey(true);
-          setIsAnalyzing(false);
-          return;
-        }
-
-        const base64 = await fileToBase64(selectedFile);
-        const extracted = await analyzeDirectWithGemini(base64, selectedFile.type, apiKey);
-        data = { success: true, extracted, savedImagePath: objectUrl };
+        setRequiresKey(true);
+        setIsAnalyzing(false);
+        return;
       }
 
       if (data.requiresKey) {

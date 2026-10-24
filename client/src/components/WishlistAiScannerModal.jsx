@@ -23,13 +23,112 @@ const WISHLIST_CATEGORIES = [
   '기타'
 ];
 
-function fileToBase64(file) {
+// Compress & resize image on client (max 1280px, JPEG 0.82) -> reduces 5MB PNG screenshot to ~100KB
+function compressImageToBase64(file) {
   return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result.split(',')[1]);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
+    const img = new Image();
+    const objectUrl = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      const MAX_DIM = 1280;
+      let { width, height } = img;
+      if (width > MAX_DIM || height > MAX_DIM) {
+        if (width > height) {
+          height = Math.round((height * MAX_DIM) / width);
+          width = MAX_DIM;
+        } else {
+          width = Math.round((width * MAX_DIM) / height);
+          height = MAX_DIM;
+        }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, width, height);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+      resolve({
+        base64: dataUrl.split(',')[1],
+        mimeType: 'image/jpeg'
+      });
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      const reader = new FileReader();
+      reader.onload = () => resolve({ base64: reader.result.split(',')[1], mimeType: file.type || 'image/jpeg' });
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    };
+    img.src = objectUrl;
   });
+}
+
+// 제외할 특수 목적 모델 키워드 (TTS, Live, Nano Banana 이미지 생성 등)
+function isExcludedModel(name = '') {
+  const lower = name.toLowerCase();
+  return (
+    lower.includes('tts') ||
+    lower.includes('live') ||
+    lower.includes('banana') ||
+    lower.includes('nano') ||
+    lower.includes('image') ||
+    lower.includes('imagen') ||
+    lower.includes('audio') ||
+    lower.includes('embedding') ||
+    lower.includes('veo') ||
+    lower.includes('aqa') ||
+    lower.includes('robotics') ||
+    lower.includes('computer-use')
+  );
+}
+
+let cachedWishlistActiveModels = null;
+async function getOrderedAvailableModels(cleanKey) {
+  if (cachedWishlistActiveModels && cachedWishlistActiveModels.length > 0) {
+    return cachedWishlistActiveModels;
+  }
+
+  const preferredOrder = [
+    'gemini-3.8-flash',
+    'gemini-3.6-flash',
+    'gemini-3.5-flash-lite',
+    'gemini-3.1-flash-lite',
+    'gemini-3.1-flash-lite-preview',
+    'gemini-2.5-flash-lite',
+    'gemini-2.5-flash',
+    'gemini-2.0-flash',
+    'gemini-flash-latest'
+  ];
+
+  try {
+    const listRes = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(cleanKey)}`
+    );
+    if (listRes.ok) {
+      const listData = await listRes.json();
+      const validServerModels = (listData.models || [])
+        .filter(
+          m =>
+            (m.supportedGenerationMethods || []).includes('generateContent') &&
+            m.name.includes('gemini') &&
+            !isExcludedModel(m.name) &&
+            !isExcludedModel(m.displayName)
+        )
+        .map(m => m.name.replace(/^models\//, ''));
+
+      if (validServerModels.length > 0) {
+        const ranked = [
+          ...preferredOrder.filter(p => validServerModels.includes(p)),
+          ...validServerModels.filter(m => m.includes('flash') && !preferredOrder.includes(m)),
+          ...validServerModels.filter(m => !m.includes('flash') && !preferredOrder.includes(m))
+        ];
+        cachedWishlistActiveModels = ranked;
+        return ranked;
+      }
+    }
+  } catch (_) {}
+
+  return preferredOrder;
 }
 
 async function analyzeWishlistWithGemini(base64Data, mimeType, apiKey) {
@@ -45,38 +144,19 @@ async function analyzeWishlistWithGemini(base64Data, mimeType, apiKey) {
   "memo": "쇼핑몰 이름(쿠팡, 무신사, 네이버 등), 할인 정보, 옵션/특징 등 한 줄 요약"
 }`;
 
-  // 후보군: TTS, Live, Nano Banana(이미지 생성) 모델을 제외한 멀티모달 Flash / Flash-Lite 모델들
-  const models = [
-    'gemini-3.8-flash',
-    'gemini-3.6-flash',
-    'gemini-3.5-flash-lite',
-    'gemini-3.1-flash-lite',
-    'gemini-3.1-flash-lite-preview',
-    'gemini-2.5-flash',
-    'gemini-2.5-flash-lite',
-    'gemini-flash-latest'
-  ];
-
-  // 제외할 특수 목적 모델 키워드 (TTS, Live, Nano Banana 이미지 생성 등)
-  const isExcludedModel = (name = '') => {
-    const lower = name.toLowerCase();
-    return (
-      lower.includes('tts') ||
-      lower.includes('live') ||
-      lower.includes('banana') ||
-      lower.includes('nano') ||
-      lower.includes('image') ||
-      lower.includes('imagen') ||
-      lower.includes('audio') ||
-      lower.includes('embedding') ||
-      lower.includes('veo') ||
-      lower.includes('aqa')
-    );
-  };
+  const models = await getOrderedAvailableModels(cleanKey);
 
   const callModel = async (modelName) => {
     const cleanModel = modelName.replace(/^models\//, '');
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${cleanModel}:generateContent?key=${encodeURIComponent(cleanKey)}`;
+    const generationConfig = {
+      temperature: 0.1,
+      response_mime_type: 'application/json'
+    };
+    if (cleanModel.includes('2.5') || cleanModel.includes('3.')) {
+      generationConfig.thinkingConfig = { thinkingBudget: 0 };
+    }
+
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -87,10 +167,7 @@ async function analyzeWishlistWithGemini(base64Data, mimeType, apiKey) {
             { inline_data: { mime_type: mimeType, data: base64Data } }
           ]
         }],
-        generationConfig: {
-          temperature: 0.1,
-          response_mime_type: 'application/json'
-        }
+        generationConfig
       })
     });
 
@@ -100,6 +177,32 @@ async function analyzeWishlistWithGemini(base64Data, mimeType, apiKey) {
         const errJson = await res.json();
         detail = errJson?.error?.message || '';
       } catch (_) {}
+
+      if (res.status === 400 && detail.includes('thinking')) {
+        delete generationConfig.thinkingConfig;
+        const retryRes = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{
+              parts: [
+                { text: prompt },
+                { inline_data: { mime_type: mimeType, data: base64Data } }
+              ]
+            }],
+            generationConfig
+          })
+        });
+        if (retryRes.ok) {
+          const retryData = await retryRes.json();
+          const retryTxt = retryData.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (retryTxt) {
+            const cleaned = retryTxt.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
+            return JSON.parse(cleaned);
+          }
+        }
+      }
+
       const err = new Error(
         res.status === 400 || res.status === 403
           ? 'API 키가 유효하지 않거나 권한이 없습니다. 설정에서 Gemini API 키를 확인해 주세요.'
@@ -121,7 +224,9 @@ async function analyzeWishlistWithGemini(base64Data, mimeType, apiKey) {
   let lastError = null;
   for (const model of models) {
     try {
-      return await callModel(model);
+      const result = await callModel(model);
+      cachedWishlistActiveModels = [model, ...models.filter(m => m !== model)];
+      return result;
     } catch (err) {
       if (err.status && err.status !== 404) {
         lastError = err;
@@ -133,26 +238,6 @@ async function analyzeWishlistWithGemini(base64Data, mimeType, apiKey) {
       }
     }
   }
-
-  // Fallback: query available models for this API key dynamically (excluding TTS, Live, Nano Banana)
-  try {
-    const listRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(cleanKey)}`);
-    if (listRes.ok) {
-      const listData = await listRes.json();
-      const dynamicCandidates = (listData.models || []).filter(
-        m =>
-          (m.supportedGenerationMethods || []).includes('generateContent') &&
-          m.name.includes('gemini') &&
-          !isExcludedModel(m.name) &&
-          !isExcludedModel(m.displayName)
-      );
-      for (const candidate of dynamicCandidates) {
-        try {
-          return await callModel(candidate.name);
-        } catch (_) {}
-      }
-    }
-  } catch (_) {}
 
   throw lastError || new Error('위시리스트 상품 AI 분석에 실패했습니다.');
 }
@@ -270,8 +355,8 @@ export default function WishlistAiScannerModal({
         return;
       }
 
-      const base64 = await fileToBase64(selectedFile);
-      const extracted = await analyzeWishlistWithGemini(base64, selectedFile.type, apiKey);
+      const { base64, mimeType } = await compressImageToBase64(selectedFile);
+      const extracted = await analyzeWishlistWithGemini(base64, mimeType, apiKey);
 
       setFormData({
         title: extracted.title || '',
