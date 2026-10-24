@@ -21,11 +21,7 @@ export default function Header({
   onSyncGoogleSheets,
   isSyncing,
   hasApiKey,
-  hasGoogleSheets,
-  googleUser,
-  onGoogleLogin,
-  onGoogleLogout,
-  isDriveSyncing
+  hasGoogleSheets
 }) {
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth() + 1;
@@ -64,39 +60,15 @@ export default function Header({
 
         {/* Action Buttons */}
         <div className="flex items-center gap-1.5 flex-shrink-0">
-          {/* Google Drive Account Sync Button */}
-          {googleUser ? (
-            <button
-              onClick={onGoogleLogout}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-xl border border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-800 shadow-xs transition"
-              title={`${googleUser.email || googleUser.name} 연결됨 (클릭 시 연결 해제)`}
-            >
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-              <span className="hidden sm:inline text-xs">{googleUser.name ? `${googleUser.name.slice(0, 4)}...` : '연동됨'}</span>
-            </button>
-          ) : (
-            <button
-              onClick={onGoogleLogin}
-              disabled={isDriveSyncing}
-              className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-xl border border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-700 shadow-xs transition active:scale-95"
-              title="구글 계정으로 로그인하여 폰과 PC 실시간 동기화"
-            >
-              <span className="w-3.5 h-3.5 rounded bg-zinc-900 text-white flex items-center justify-center font-bold text-[9px]">
-                G
-              </span>
-              <span className="hidden sm:inline text-xs">구글 연동</span>
-            </button>
-          )}
-
           {/* Google Sheets Sync Button */}
           <button
             onClick={onSyncGoogleSheets}
             disabled={isSyncing}
-            className="flex items-center gap-1 px-2.5 sm:px-3 py-1.5 text-xs font-medium rounded-xl border border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-700 transition"
-            title="구글 시트 동기화"
+            className="flex items-center gap-1 px-2.5 sm:px-3 py-1.5 text-xs font-semibold rounded-xl border border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-800 shadow-xs transition active:scale-95"
+            title="구글 시트에서 최신 내역(지출·위시리스트·예산) 동기화"
           >
-            <RefreshCw className={`w-3.5 h-3.5 text-zinc-600 ${isSyncing ? 'animate-spin' : ''}`} />
-            <span className="hidden md:inline text-xs">시트 동기화</span>
+            <RefreshCw className={`w-3.5 h-3.5 text-zinc-700 ${isSyncing ? 'animate-spin' : ''}`} />
+            <span className="hidden sm:inline text-xs">시트 동기화</span>
           </button>
 
           {/* QR Code Phone Sync button (Desktop & Tablet only) */}

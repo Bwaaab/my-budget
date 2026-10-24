@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import { formatKRW } from '../constants';
 
-export default function Wishlist({ remainingBudget = 0, onConvertToExpense }) {
+export default function Wishlist({ remainingBudget = 0, onConvertToExpense, onSyncWishlist }) {
   const [items, setItems] = useState(() => {
     const saved = localStorage.getItem('budget_wishlist');
     if (saved) {
@@ -55,9 +55,20 @@ export default function Wishlist({ remainingBudget = 0, onConvertToExpense }) {
     memo: ''
   });
 
+  const updateItems = (newItems) => {
+    setItems(newItems);
+    localStorage.setItem('budget_wishlist', JSON.stringify(newItems));
+    if (onSyncWishlist) {
+      onSyncWishlist(newItems);
+    }
+  };
+
   useEffect(() => {
-    localStorage.setItem('budget_wishlist', JSON.stringify(items));
-  }, [items]);
+    const saved = localStorage.getItem('budget_wishlist');
+    if (saved) {
+      try { setItems(JSON.parse(saved)); } catch (_) {}
+    }
+  }, []);
 
   const handleAddItem = (e) => {
     e.preventDefault();
@@ -75,7 +86,7 @@ export default function Wishlist({ remainingBudget = 0, onConvertToExpense }) {
       createdAt: new Date().toISOString().slice(0, 10)
     };
 
-    setItems([newItem, ...items]);
+    updateItems([newItem, ...items]);
     setFormData({
       title: '',
       price: '',
@@ -89,13 +100,13 @@ export default function Wishlist({ remainingBudget = 0, onConvertToExpense }) {
 
   const handleDeleteItem = (id) => {
     if (confirm('이 위시리스트 항목을 삭제하시겠습니까?')) {
-      setItems(items.filter(i => i.id !== id));
+      updateItems(items.filter(i => i.id !== id));
     }
   };
 
   const handleMarkPurchased = (item) => {
     if (confirm(`'${item.title}'을(를) 구매 완료 처리하고 이번 달 가계부 지출에 등록할까요?`)) {
-      setItems(items.map(i => i.id === item.id ? { ...i, status: 'purchased' } : i));
+      updateItems(items.map(i => i.id === item.id ? { ...i, status: 'purchased' } : i));
       if (onConvertToExpense) {
         onConvertToExpense({
           type: 'expense',
