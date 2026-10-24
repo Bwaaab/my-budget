@@ -252,16 +252,16 @@ export default function Wishlist({
             onClick={onPullFromGoogleSheets}
             disabled={isSyncing}
             className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 bg-white hover:bg-zinc-50 border border-zinc-200 rounded-xl text-[11px] font-semibold text-zinc-700 transition shadow-2xs whitespace-nowrap flex-shrink-0"
-            title="구글 시트의 '위시리스트' 탭과 즉시 동기화"
+            title="DB와 즉시 동기화"
           >
             <span className={`w-2 h-2 rounded-full flex-shrink-0 ${hasGoogleSheets ? 'bg-emerald-500' : 'bg-amber-500'}`} />
             <RefreshCw className={`w-3 h-3 text-zinc-500 flex-shrink-0 ${isSyncing ? 'animate-spin' : ''}`} />
             <span>
               {isSyncing
-                ? '동기화 중...'
+                ? 'DB 연동 중...'
                 : hasGoogleSheets
-                ? '시트 자동 연동 중'
-                : '시트 연동 설정'}
+                ? 'DB 연동 완료'
+                : 'DB 미연동'}
             </span>
           </button>
         )}

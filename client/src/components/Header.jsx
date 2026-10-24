@@ -71,8 +71,8 @@ export default function Header({
             }`}
             title={
               hasGoogleSheets
-                ? '구글 시트 연동됨 — 클릭하여 최신 내역 동기화'
-                : '구글 시트 연동 설정하기'
+                ? 'DB 연동 완료 — 클릭하여 최신 내역 동기화'
+                : 'DB 연동 설정'
             }
           >
             <span
@@ -82,7 +82,7 @@ export default function Header({
             />
             <RefreshCw className={`w-3.5 h-3.5 ${hasGoogleSheets ? 'text-zinc-700' : 'text-amber-700'} ${isSyncing ? 'animate-spin' : ''}`} />
             <span className="text-[11px] sm:text-xs whitespace-nowrap">
-              {isSyncing ? '동기화 중...' : hasGoogleSheets ? '시트 연동됨' : '시트 연동 필요'}
+              {isSyncing ? 'DB 연동 중...' : hasGoogleSheets ? 'DB 연동 완료' : 'DB 미연동'}
             </span>
           </button>
 

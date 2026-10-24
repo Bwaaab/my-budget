@@ -563,11 +563,11 @@ export default function App() {
 
       fetchStats();
       if (!silent) {
-        showToast(`🎉 구글 시트 동기화 완료! (내역 ${txCount}건, 위시리스트 ${wishCount}건)`);
+        showToast(`🎉 DB 동기화 완료! (내역 ${txCount}건, 위시리스트 ${wishCount}건)`);
       }
     } catch (err) {
       if (!silent) {
-        showToast('⚠️ 구글 시트 동기화 실패: URL을 확인해 주세요.');
+        showToast('⚠️ DB 동기화 실패: URL을 확인해 주세요.');
       }
     } finally {
       setIsSyncing(false);
