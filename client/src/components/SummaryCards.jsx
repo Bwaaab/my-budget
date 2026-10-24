@@ -33,7 +33,7 @@ export default function SummaryCards({ stats, onOpenBudgetEdit }) {
           <div className="mt-1.5 sm:mt-2 text-[11px] text-zinc-400 whitespace-nowrap truncate">
             {totalExpense > 0 ? (
               <span>
-                필수 {formatKRW(totalNeedExpense)} · <span className="text-amber-600 font-medium">선택 {formatKRW(totalWantExpense)}</span>
+                필수 {formatKRW(totalNeedExpense)} · <span className="text-zinc-600 font-medium">선택 {formatKRW(totalWantExpense)}</span>
               </span>
             ) : (
               '순수 소비 지출액'
@@ -139,25 +139,25 @@ export default function SummaryCards({ stats, onOpenBudgetEdit }) {
                 <span className="text-[10px] text-zinc-400 whitespace-nowrap">(필수 vs 아낄 수 있었던 돈)</span>
               </div>
               <div className="flex items-center gap-3 text-xs font-semibold flex-shrink-0">
-                <span className="inline-flex items-center gap-1 text-zinc-800 whitespace-nowrap">
-                  <span className="w-2 h-2 rounded-full bg-zinc-800 flex-shrink-0" />
+                <span className="inline-flex items-center gap-1.5 text-zinc-800 whitespace-nowrap">
+                  <span className="w-2 h-2 rounded-full bg-zinc-900 flex-shrink-0" />
                   필수 {formatKRW(totalNeedExpense)} <span className="text-zinc-400 font-normal">({needPercent}%)</span>
                 </span>
-                <span className="inline-flex items-center gap-1 text-amber-700 whitespace-nowrap">
-                  <span className="w-2 h-2 rounded-full bg-amber-500 flex-shrink-0" />
-                  선택 {formatKRW(totalWantExpense)} <span className="text-amber-500 font-normal">({wantPercent}%)</span>
+                <span className="inline-flex items-center gap-1.5 text-zinc-600 whitespace-nowrap">
+                  <span className="w-2 h-2 rounded-full bg-zinc-400 flex-shrink-0" />
+                  선택 {formatKRW(totalWantExpense)} <span className="text-zinc-400 font-normal">({wantPercent}%)</span>
                 </span>
               </div>
             </div>
 
             <div className="w-full h-2 bg-zinc-100 rounded-full overflow-hidden flex">
               <div
-                className="h-full bg-zinc-800 transition-all duration-500"
+                className="h-full bg-zinc-900 transition-all duration-500"
                 style={{ width: `${needPercent}%` }}
                 title={`필수: ${formatKRW(totalNeedExpense)} (${needPercent}%)`}
               />
               <div
-                className="h-full bg-amber-500 transition-all duration-500"
+                className="h-full bg-zinc-400 transition-all duration-500"
                 style={{ width: `${wantPercent}%` }}
                 title={`선택(아낄 수 있었던 돈): ${formatKRW(totalWantExpense)} (${wantPercent}%)`}
               />

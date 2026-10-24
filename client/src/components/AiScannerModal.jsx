@@ -611,30 +611,32 @@ export default function AiScannerModal({
                     <label className="block text-xs font-semibold text-slate-700 mb-1">
                       지출 성격
                     </label>
-                    <div className="grid grid-cols-2 gap-2 bg-slate-100 p-1 rounded-xl text-xs font-semibold">
+                    <div className="grid grid-cols-2 gap-1.5 bg-slate-100 p-1 rounded-xl text-xs font-semibold">
                       <button
                         type="button"
                         onClick={() => setFormData({ ...formData, necessity: 'need' })}
-                        className={`py-1.5 px-2 rounded-lg transition flex items-center justify-center gap-1.5 whitespace-nowrap ${
+                        className={`py-1.5 px-2.5 rounded-lg transition flex items-center justify-center gap-1.5 whitespace-nowrap ${
                           formData.necessity !== 'want'
-                            ? 'bg-zinc-900 text-white shadow-xs'
-                            : 'text-slate-600 hover:text-slate-900'
+                            ? 'bg-zinc-900 text-white shadow-xs font-bold'
+                            : 'text-slate-500 hover:text-slate-900'
                         }`}
                       >
-                        <span>🟢 필수</span>
-                        <span className="text-[10px] opacity-80">(꼭 필요한 돈)</span>
+                        <span className={`w-1.5 h-1.5 rounded-full ${formData.necessity !== 'want' ? 'bg-zinc-200' : 'bg-slate-400'}`} />
+                        <span>필수</span>
+                        <span className={`text-[10px] ${formData.necessity !== 'want' ? 'text-zinc-300' : 'text-slate-400'}`}>(생활비)</span>
                       </button>
                       <button
                         type="button"
                         onClick={() => setFormData({ ...formData, necessity: 'want' })}
-                        className={`py-1.5 px-2 rounded-lg transition flex items-center justify-center gap-1.5 whitespace-nowrap ${
+                        className={`py-1.5 px-2.5 rounded-lg transition flex items-center justify-center gap-1.5 whitespace-nowrap ${
                           formData.necessity === 'want'
-                            ? 'bg-amber-600 text-white shadow-xs'
-                            : 'text-slate-600 hover:text-slate-900'
+                            ? 'bg-zinc-900 text-white shadow-xs font-bold'
+                            : 'text-slate-500 hover:text-slate-900'
                         }`}
                       >
-                        <span>🟠 선택</span>
-                        <span className="text-[10px] opacity-80">(아낄 수 있었던 돈)</span>
+                        <span className={`w-1.5 h-1.5 rounded-full ${formData.necessity === 'want' ? 'bg-zinc-400' : 'bg-slate-400'}`} />
+                        <span>선택</span>
+                        <span className={`text-[10px] ${formData.necessity === 'want' ? 'text-zinc-300' : 'text-slate-400'}`}>(아낄 돈)</span>
                       </button>
                     </div>
                   </div>

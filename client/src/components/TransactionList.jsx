@@ -138,11 +138,11 @@ export default function TransactionList({
 
           {/* Necessity sub-filter when Expense is selected */}
           {filterType === 'expense' && (
-            <div className="flex bg-amber-50/70 border border-amber-200/50 rounded-xl p-0.5 text-xs font-semibold flex-shrink-0">
+            <div className="flex bg-zinc-100 rounded-xl p-0.5 text-xs font-semibold flex-shrink-0">
               <button
                 onClick={() => setFilterNecessity('all')}
                 className={`px-2 py-0.5 rounded-lg transition whitespace-nowrap text-[11px] ${
-                  filterNecessity === 'all' ? 'bg-white text-zinc-900 shadow-xs' : 'text-zinc-500'
+                  filterNecessity === 'all' ? 'bg-white text-zinc-900 shadow-xs font-bold' : 'text-zinc-500 hover:text-zinc-900'
                 }`}
               >
                 전체
@@ -150,7 +150,7 @@ export default function TransactionList({
               <button
                 onClick={() => setFilterNecessity('need')}
                 className={`px-2 py-0.5 rounded-lg transition whitespace-nowrap text-[11px] ${
-                  filterNecessity === 'need' ? 'bg-white text-zinc-900 shadow-xs font-bold' : 'text-zinc-500'
+                  filterNecessity === 'need' ? 'bg-white text-zinc-900 shadow-xs font-bold' : 'text-zinc-500 hover:text-zinc-900'
                 }`}
               >
                 필수
@@ -158,7 +158,7 @@ export default function TransactionList({
               <button
                 onClick={() => setFilterNecessity('want')}
                 className={`px-2 py-0.5 rounded-lg transition whitespace-nowrap text-[11px] ${
-                  filterNecessity === 'want' ? 'bg-amber-600 text-white shadow-xs font-bold' : 'text-amber-700'
+                  filterNecessity === 'want' ? 'bg-zinc-900 text-white shadow-xs font-bold' : 'text-zinc-500 hover:text-zinc-900'
                 }`}
               >
                 선택(아낄 돈)
@@ -262,11 +262,11 @@ export default function TransactionList({
                               )}
                               {t.type === 'expense' && !isSavingTx(t) && (
                                 getNecessity(t) === 'want' ? (
-                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200/60 font-semibold whitespace-nowrap flex-shrink-0" title="선택 지출 (아낄 수 있었던 돈)">
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-200 text-zinc-800 font-semibold border border-zinc-300/60 whitespace-nowrap flex-shrink-0" title="선택 지출 (아낄 수 있었던 돈)">
                                     선택
                                   </span>
                                 ) : (
-                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-500 whitespace-nowrap flex-shrink-0" title="필수 지출 (꼭 필요한 돈)">
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-500 border border-zinc-200/50 whitespace-nowrap flex-shrink-0" title="필수 지출 (생활비)">
                                     필수
                                   </span>
                                 )
