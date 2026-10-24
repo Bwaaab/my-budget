@@ -226,25 +226,22 @@ export default function AiScannerModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in overflow-y-auto">
       <div className="bg-white rounded-3xl shadow-2xl w-full max-w-3xl overflow-hidden my-auto max-h-[92vh] flex flex-col border border-slate-100">
         {/* Modal Header */}
-        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-gradient-to-r from-indigo-50/50 to-white">
+        <div className="px-5 py-3.5 border-b border-zinc-100 flex items-center justify-between bg-zinc-50/50">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-sm">
-              <Sparkles className="w-4 h-4 text-yellow-300" />
+            <div className="w-7 h-7 rounded-lg bg-zinc-900 text-white flex items-center justify-center">
+              <Sparkles className="w-3.5 h-3.5 text-zinc-300" />
             </div>
             <div>
-              <h2 className="text-base sm:text-lg font-bold text-slate-900">
-                AI 영수증 · 결제 캡처 자동 인식
+              <h2 className="text-sm sm:text-base font-bold text-zinc-900">
+                AI 캡처 인식
               </h2>
-              <p className="text-xs text-slate-500">
-                종이 영수증, 카드 결제 문자, 토스/카카오페이 캡처를 올리면 즉시 입력됩니다
-              </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-xl hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition"
+            className="p-1 rounded-lg hover:bg-zinc-100 text-zinc-400 hover:text-zinc-600 transition"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
 
@@ -541,9 +538,9 @@ export default function AiScannerModal({
                 <button
                   type="submit"
                   disabled={isAnalyzing}
-                  className="w-full mt-2 py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm rounded-xl shadow-md shadow-indigo-100 transition active:scale-[0.99] flex items-center justify-center gap-1.5"
+                  className="w-full mt-2 py-2 px-4 bg-zinc-900 hover:bg-zinc-800 text-white font-bold text-xs rounded-xl shadow-xs transition active:scale-[0.99] flex items-center justify-center gap-1.5"
                 >
-                  <Check className="w-4 h-4" />
+                  <Check className="w-3.5 h-3.5" />
                   <span>가계부에 저장하기</span>
                 </button>
               </form>

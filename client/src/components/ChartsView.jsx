@@ -10,8 +10,7 @@ import {
   Title
 } from 'chart.js';
 import { Doughnut, Bar } from 'react-chartjs-2';
-import { CATEGORY_COLORS, formatKRW } from '../constants';
-import CategoryIcon from './CategoryIcon';
+import { formatKRW } from '../constants';
 
 ChartJS.register(
   ArcElement,
@@ -23,6 +22,18 @@ ChartJS.register(
   Title
 );
 
+// Modern calm palette
+const SLATE_PALETTE = [
+  '#18181b', // zinc-900
+  '#3f3f46', // zinc-700
+  '#71717a', // zinc-500
+  '#a1a1aa', // zinc-400
+  '#d4d4d8', // zinc-300
+  '#e4e4e7', // zinc-200
+  '#52525b',
+  '#27272a'
+];
+
 export default function ChartsView({ stats }) {
   const { categories = [], dailyTrend = [] } = stats || {};
 
@@ -32,7 +43,7 @@ export default function ChartsView({ stats }) {
     datasets: [
       {
         data: categories.map(c => c.amount),
-        backgroundColor: categories.map(c => CATEGORY_COLORS[c.category] || '#94a3b8'),
+        backgroundColor: categories.map((_, i) => SLATE_PALETTE[i % SLATE_PALETTE.length]),
         borderWidth: 2,
         borderColor: '#ffffff'
       }
@@ -43,19 +54,14 @@ export default function ChartsView({ stats }) {
     responsive: true,
     maintainAspectRatio: false,
     plugins: {
-      legend: {
-        display: false
-      },
+      legend: { display: false },
       tooltip: {
         callbacks: {
-          label: (context) => {
-            const val = context.raw || 0;
-            return ` ${formatKRW(val)}`;
-          }
+          label: (context) => ` ${formatKRW(context.raw || 0)}`
         }
       }
     },
-    cutout: '72%'
+    cutout: '74%'
   };
 
   // Daily Trend Bar Chart Data
@@ -65,9 +71,9 @@ export default function ChartsView({ stats }) {
       {
         label: '일별 지출',
         data: dailyTrend.map(d => d.expense),
-        backgroundColor: '#6366f1',
+        backgroundColor: '#27272a', // zinc-800
         borderRadius: 4,
-        maxBarThickness: 16
+        maxBarThickness: 14
       }
     ]
   };
@@ -86,12 +92,13 @@ export default function ChartsView({ stats }) {
     scales: {
       x: {
         grid: { display: false },
-        ticks: { font: { size: 10 }, maxTicksLimit: 15 }
+        ticks: { font: { size: 10 }, color: '#a1a1aa', maxTicksLimit: 15 }
       },
       y: {
-        grid: { color: '#f1f5f9' },
+        grid: { color: '#f4f4f5' },
         ticks: {
           font: { size: 10 },
+          color: '#a1a1aa',
           callback: (value) => (value >= 10000 ? `${value / 10000}만` : value)
         }
       }
@@ -99,42 +106,42 @@ export default function ChartsView({ stats }) {
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
       {/* Category Breakdown Card */}
-      <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/80 shadow-sm flex flex-col">
-        <h3 className="text-sm sm:text-base font-bold text-slate-900 mb-3 flex items-center justify-between">
-          <span>카테고리별 지출 분석</span>
-          <span className="text-xs text-slate-400 font-normal">상위 항목</span>
+      <div className="bg-white rounded-2xl p-4 sm:p-5 border border-zinc-200/70 shadow-xs flex flex-col">
+        <h3 className="text-xs sm:text-sm font-bold text-zinc-900 mb-3 flex items-center justify-between">
+          <span>카테고리별 지출</span>
+          <span className="text-[11px] text-zinc-400 font-normal">비율 분석</span>
         </h3>
 
         {categories.length === 0 ? (
-          <div className="flex-1 flex flex-col items-center justify-center py-10 text-slate-400 text-sm">
-            이번 달 지출 내역이 없습니다.
+          <div className="flex-1 flex flex-col items-center justify-center py-10 text-zinc-400 text-xs">
+            지출 내역이 없습니다.
           </div>
         ) : (
           <div className="flex flex-col sm:flex-row items-center gap-4 flex-1">
             {/* Donut Chart */}
-            <div className="relative w-36 h-36 sm:w-44 sm:h-44 flex-shrink-0">
+            <div className="relative w-32 h-32 sm:w-40 sm:h-40 flex-shrink-0">
               <Doughnut data={doughnutData} options={doughnutOptions} />
               <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                <span className="text-xs text-slate-400">총 {categories.length}개</span>
-                <span className="text-xs font-semibold text-slate-700">분류</span>
+                <span className="text-[10px] text-zinc-400">총 {categories.length}개</span>
+                <span className="text-xs font-semibold text-zinc-700">항목</span>
               </div>
             </div>
 
             {/* Category List */}
-            <div className="w-full space-y-2 max-h-48 overflow-y-auto pr-1">
-              {categories.map((c) => (
-                <div key={c.category} className="flex items-center justify-between text-xs sm:text-sm">
+            <div className="w-full space-y-2 max-h-44 overflow-y-auto pr-1">
+              {categories.map((c, i) => (
+                <div key={c.category} className="flex items-center justify-between text-xs">
                   <div className="flex items-center gap-2">
                     <span
-                      className="w-2.5 h-2.5 rounded-full"
-                      style={{ backgroundColor: CATEGORY_COLORS[c.category] || '#94a3b8' }}
+                      className="w-2 h-2 rounded-full"
+                      style={{ backgroundColor: SLATE_PALETTE[i % SLATE_PALETTE.length] }}
                     />
-                    <span className="font-medium text-slate-700">{c.category}</span>
-                    <span className="text-slate-400 text-xs">({c.percentage}%)</span>
+                    <span className="font-medium text-zinc-700">{c.category}</span>
+                    <span className="text-zinc-400 text-[11px]">({c.percentage}%)</span>
                   </div>
-                  <span className="font-semibold text-slate-900">{formatKRW(c.amount)}</span>
+                  <span className="font-semibold text-zinc-900">{formatKRW(c.amount)}</span>
                 </div>
               ))}
             </div>
@@ -143,13 +150,13 @@ export default function ChartsView({ stats }) {
       </div>
 
       {/* Daily Spending Trend Card */}
-      <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/80 shadow-sm flex flex-col">
-        <h3 className="text-sm sm:text-base font-bold text-slate-900 mb-3 flex items-center justify-between">
+      <div className="bg-white rounded-2xl p-4 sm:p-5 border border-zinc-200/70 shadow-xs flex flex-col">
+        <h3 className="text-xs sm:text-sm font-bold text-zinc-900 mb-3 flex items-center justify-between">
           <span>일별 지출 추이</span>
-          <span className="text-xs text-slate-400 font-normal">날짜별 추이</span>
+          <span className="text-[11px] text-zinc-400 font-normal">일별 통계</span>
         </h3>
 
-        <div className="h-44 sm:h-48 w-full mt-2">
+        <div className="h-40 sm:h-44 w-full mt-1">
           <Bar data={barData} options={barOptions} />
         </div>
       </div>
