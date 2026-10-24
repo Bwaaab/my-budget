@@ -65,18 +65,21 @@ const GOOGLE_SCRIPT_CODE = `function doGet(e) {
     }
   }
 
-  // 3. Settings (목표 예산)
+  // 3. Settings (목표 예산 & Gemini API 키)
   var settingsSheet = ss.getSheetByName('설정');
   var monthly_budget = null;
+  var gemini_api_key = '';
   if (settingsSheet) {
     var sVal = settingsSheet.getRange(1, 2).getValue();
     if (sVal) monthly_budget = Number(sVal);
+    var kVal = settingsSheet.getRange(2, 2).getValue();
+    if (kVal) gemini_api_key = String(kVal);
   }
 
   return ContentService.createTextOutput(JSON.stringify({
     transactions: transactions,
     wishlist: wishlist,
-    settings: { monthly_budget: monthly_budget }
+    settings: { monthly_budget: monthly_budget, gemini_api_key: gemini_api_key }
   })).setMimeType(ContentService.MimeType.JSON);
 }
 
@@ -155,12 +158,16 @@ function doPost(e) {
     return ContentService.createTextOutput(JSON.stringify({ success: true })).setMimeType(ContentService.MimeType.JSON);
   }
 
-  // 목표 예산 저장
+  // 목표 예산 및 AI API 키 저장
   if (action === 'update_budget') {
     var settingsSheet = ss.getSheetByName('설정');
     if (!settingsSheet) settingsSheet = ss.insertSheet('설정');
     settingsSheet.getRange(1, 1).setValue('monthly_budget');
     settingsSheet.getRange(1, 2).setValue(Number(payload.monthly_budget) || 1200000);
+    if (payload.gemini_api_key) {
+      settingsSheet.getRange(2, 1).setValue('gemini_api_key');
+      settingsSheet.getRange(2, 2).setValue(String(payload.gemini_api_key));
+    }
     return ContentService.createTextOutput(JSON.stringify({ success: true })).setMimeType(ContentService.MimeType.JSON);
   }
 
@@ -244,22 +251,34 @@ export default function SettingsModal({
     setTestResult('구글 시트와 통신 및 동기화 중...');
 
     try {
-      // 1. Save settings & push current budget to Google Sheets first
-      await onSaveSettings({
-        gemini_api_key: apiKey,
-        monthly_budget: Number(budget) || 1200000,
-        google_sheets_url: cleanUrl
-      });
+      // Save URL first
+      localStorage.setItem('budget_sheets_url', cleanUrl);
+      if (apiKey.trim()) {
+        localStorage.setItem('budget_gemini_key', apiKey.trim());
+      }
 
-      // 2. Verify GET connection
-      const res = await fetch(cleanUrl);
+      // 1. Verify GET connection & pull existing settings/API key/budget from Google Sheets
+      const res = await fetch(`${cleanUrl}${cleanUrl.includes('?') ? '&' : '?'}_t=${Date.now()}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       await res.json();
 
-      setTestResult('🟢 연결 성공! 목표 예산과 구글 시트 주소가 완벽하게 저장되었습니다.');
       if (onSyncGoogleSheets) {
-        onSyncGoogleSheets(cleanUrl, Number(budget) || 1200000);
+        await onSyncGoogleSheets(cleanUrl, Number(budget) !== 1200000 ? Number(budget) : null);
       }
+
+      // 2. Reflect synced values in modal inputs & ensure local settings are saved
+      const syncedKey = apiKey.trim() || localStorage.getItem('budget_gemini_key') || '';
+      const syncedBudget = Number(localStorage.getItem('budget_monthly_target')) || Number(budget) || 1200000;
+      if (syncedKey) setApiKey(syncedKey);
+      if (syncedBudget) setBudget(String(syncedBudget));
+
+      await onSaveSettings({
+        gemini_api_key: syncedKey,
+        monthly_budget: syncedBudget,
+        google_sheets_url: cleanUrl
+      });
+
+      setTestResult('🟢 연결 성공! 지출 내역·위시리스트·목표 예산·AI 키가 모두 동기화되었습니다.');
     } catch (err) {
       setTestResult(`🔴 연결 실패: 구글 시트 웹앱 URL(/exec)과 액세스 권한(모든 사용자)을 확인해 주세요. (${err.message})`);
     } finally {

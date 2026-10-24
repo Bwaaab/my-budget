@@ -98,6 +98,35 @@ async function postToGoogleSheets(sheetsUrl, payload) {
   return task;
 }
 
+// Helper: Embed system config (Gemini API Key & Monthly Budget) in wishlist payload
+// so it syncs across PC & Mobile even without redeploying Google Apps Script
+function buildSyncedWishlistPayload(wishlistItems, apiKey, monthlyBudget) {
+  const cleanItems = (wishlistItems || []).filter(
+    w => w && w.id !== '__SYS_CONFIG__' && w.title !== '__SYS_CONFIG__'
+  );
+  const keyToSave = (apiKey || localStorage.getItem('budget_gemini_key') || '').trim();
+  const budgetToSave = Number(monthlyBudget) || Number(localStorage.getItem('budget_monthly_target')) || 1200000;
+  if (!keyToSave && !budgetToSave) return cleanItems;
+
+  return [
+    ...cleanItems,
+    {
+      id: '__SYS_CONFIG__',
+      title: '__SYS_CONFIG__',
+      price: 0,
+      category: 'system',
+      priority: 1,
+      status: 'system',
+      memo: JSON.stringify({
+        gemini_api_key: keyToSave,
+        monthly_budget: budgetToSave
+      }),
+      link: '',
+      createdAt: ''
+    }
+  ];
+}
+
 export default function App() {
   const [currentDate, setCurrentDate] = useState(new Date());
 
@@ -321,26 +350,36 @@ export default function App() {
           txCount = data.transactions.length;
         }
 
-        // 2. Wishlist — Google Sheets is the Single Source of Truth (respects deletions)
+        // 2. Wishlist + Embedded System Config (__SYS_CONFIG__) — Single Source of Truth
+        let embeddedConfig = null;
+        let cleanWishlist = [];
         if (Array.isArray(data.wishlist)) {
-          setWishlist(data.wishlist);
-          localStorage.setItem('budget_wishlist', JSON.stringify(data.wishlist));
-          wishCount = data.wishlist.length;
+          const sysRow = data.wishlist.find(
+            w => w && (w.id === '__SYS_CONFIG__' || w.title === '__SYS_CONFIG__')
+          );
+          if (sysRow && sysRow.memo) {
+            try {
+              embeddedConfig = JSON.parse(sysRow.memo);
+            } catch (_) {}
+          }
+          cleanWishlist = data.wishlist.filter(
+            w => w && w.id !== '__SYS_CONFIG__' && w.title !== '__SYS_CONFIG__'
+          );
+          setWishlist(cleanWishlist);
+          localStorage.setItem('budget_wishlist', JSON.stringify(cleanWishlist));
+          wishCount = cleanWishlist.length;
         }
 
-        // 3. Monthly Budget Target
-        const sheetBudget = Number(data.settings?.monthly_budget) || 0;
+        // 3. Monthly Budget Target + Gemini API Key Sync
+        const sheetBudget = Number(data.settings?.monthly_budget) || Number(embeddedConfig?.monthly_budget) || 0;
         let finalBudget = 1200000;
 
         if (overrideLocalBudget && Number(overrideLocalBudget) !== 1200000) {
-          // User explicitly saved/tested with a specific budget on this device -> push to sheet
           finalBudget = Number(overrideLocalBudget);
           await postToGoogleSheets(sheetsUrl, { action: 'update_budget', monthly_budget: finalBudget });
         } else if (sheetBudget && sheetBudget !== 1200000) {
-          // Sheet has a custom budget (e.g. 400,000 set from PC) -> adopt on Phone/PC!
           finalBudget = sheetBudget;
         } else if (localBudget && localBudget !== 1200000 && (!sheetBudget || sheetBudget === 1200000)) {
-          // Local device has custom budget (e.g. 400,000) while sheet still has default 1,200,000 -> push local to sheet!
           finalBudget = localBudget;
           await postToGoogleSheets(sheetsUrl, { action: 'update_budget', monthly_budget: finalBudget });
         } else if (sheetBudget) {
@@ -349,9 +388,26 @@ export default function App() {
           finalBudget = localBudget;
         }
 
+        const sheetApiKey = (data.settings?.gemini_api_key || embeddedConfig?.gemini_api_key || '').trim();
+        const localApiKey = (localStorage.getItem('budget_gemini_key') || '').trim();
+        let finalApiKey = localApiKey;
+
+        if (sheetApiKey && !sheetApiKey.includes('...')) {
+          finalApiKey = sheetApiKey;
+          localStorage.setItem('budget_gemini_key', finalApiKey);
+        } else if (localApiKey && !sheetApiKey) {
+          // Push local API key to Google Sheets automatically so Mobile gets it without re-entering
+          await postToGoogleSheets(sheetsUrl, {
+            action: 'sync_wishlist',
+            wishlist: buildSyncedWishlistPayload(cleanWishlist, localApiKey, finalBudget)
+          });
+        }
+
         localStorage.setItem('budget_monthly_target', String(finalBudget));
         setSettings(prev => ({
           ...prev,
+          gemini_api_key: finalApiKey || prev?.gemini_api_key || '',
+          hasApiKey: !!(finalApiKey || prev?.hasApiKey),
           monthly_budget: finalBudget,
           google_sheets_url: sheetsUrl
         }));
@@ -380,11 +436,18 @@ export default function App() {
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const sheetFromUrl = urlParams.get('sheet');
+    const keyFromUrl = urlParams.get('key');
+    if (keyFromUrl) {
+      localStorage.setItem('budget_gemini_key', keyFromUrl.trim());
+      setSettings(prev => ({ ...prev, gemini_api_key: keyFromUrl.trim(), hasApiKey: true }));
+    }
     if (sheetFromUrl && !sheetFromUrl.includes('/macros/library/')) {
       localStorage.setItem('budget_sheets_url', sheetFromUrl.trim());
       setSettings(prev => ({ ...prev, google_sheets_url: sheetFromUrl.trim() }));
       window.history.replaceState({}, document.title, window.location.pathname);
-      showToast('🔗 구글 시트가 자동 연결되었습니다!');
+      showToast('🔗 구글 시트 및 AI 키가 자동 연결되었습니다!');
+    } else if (keyFromUrl) {
+      window.history.replaceState({}, document.title, window.location.pathname);
     }
 
     fetchTransactions();
@@ -633,26 +696,35 @@ export default function App() {
       });
     } catch (_) {}
 
-    // Push budget to Google Sheets and await completion
+    // Push budget + Gemini API key to Google Sheets and await completion
     if (cleanSheetsUrl && !cleanSheetsUrl.includes('/macros/library/')) {
+      const currentKey = (newSettings.gemini_api_key || localStorage.getItem('budget_gemini_key') || '').trim();
       await postToGoogleSheets(cleanSheetsUrl, {
         action: 'update_budget',
-        monthly_budget: newBudget
+        monthly_budget: newBudget,
+        gemini_api_key: currentKey
+      });
+      await postToGoogleSheets(cleanSheetsUrl, {
+        action: 'sync_wishlist',
+        wishlist: buildSyncedWishlistPayload(wishlist, currentKey, newBudget)
       });
     }
 
-    showToast('⚙️ 설정이 안전하게 저장되었습니다.');
+    showToast('⚙️ 설정이 안전하게 저장 및 동기화되었습니다.');
   };
 
-  // Sync Wishlist to Google Sheets
+  // Sync Wishlist to Google Sheets (preserves embedded API Key & Budget config)
   const handleSyncWishlist = async (wishlistItems) => {
-    setWishlist(wishlistItems);
-    localStorage.setItem('budget_wishlist', JSON.stringify(wishlistItems));
+    const cleanItems = (wishlistItems || []).filter(
+      w => w && w.id !== '__SYS_CONFIG__' && w.title !== '__SYS_CONFIG__'
+    );
+    setWishlist(cleanItems);
+    localStorage.setItem('budget_wishlist', JSON.stringify(cleanItems));
     const sheetsUrl = (settings?.google_sheets_url || localStorage.getItem('budget_sheets_url') || '').trim();
     if (sheetsUrl) {
       await postToGoogleSheets(sheetsUrl, {
         action: 'sync_wishlist',
-        wishlist: wishlistItems
+        wishlist: buildSyncedWishlistPayload(cleanItems, settings?.gemini_api_key, settings?.monthly_budget)
       });
     }
   };

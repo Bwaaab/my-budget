@@ -7,14 +7,17 @@ export default function QrCodeModal({ isOpen, onClose, networkInfo, googleSheets
   if (!isOpen) return null;
 
   const activeSheetUrl = (googleSheetsUrl || localStorage.getItem('budget_sheets_url') || '').trim();
+  const activeApiKey = (localStorage.getItem('budget_gemini_key') || '').trim();
   const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
   const publicBaseUrl = isLocalhost
     ? 'https://bwaaab.github.io/my-budget/'
     : `${window.location.origin}${window.location.pathname}`;
 
-  const mobileUrl = activeSheetUrl
-    ? `${publicBaseUrl}?sheet=${encodeURIComponent(activeSheetUrl)}`
-    : publicBaseUrl;
+  const queryParams = new URLSearchParams();
+  if (activeSheetUrl) queryParams.set('sheet', activeSheetUrl);
+  if (activeApiKey && !activeApiKey.includes('...')) queryParams.set('key', activeApiKey);
+  const qs = queryParams.toString();
+  const mobileUrl = qs ? `${publicBaseUrl}?${qs}` : publicBaseUrl;
 
   const qrCodeDataUrl = `https://api.qrserver.com/v1/create-qr-code/?size=256x256&data=${encodeURIComponent(mobileUrl)}`;
 
