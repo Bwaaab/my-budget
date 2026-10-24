@@ -3,7 +3,7 @@ import {
   LayoutDashboard,
   Receipt,
   Sparkles,
-  QrCode,
+  Heart,
   Settings
 } from 'lucide-react';
 
@@ -11,7 +11,6 @@ export default function MobileBottomNav({
   activeTab,
   setActiveTab,
   onOpenScanner,
-  onOpenQrModal,
   onOpenSettingsModal
 }) {
   return (
@@ -54,13 +53,18 @@ export default function MobileBottomNav({
         <Sparkles className="w-6 h-6 text-yellow-300" />
       </button>
 
-      {/* QR Sync */}
+      {/* Wishlist Tab */}
       <button
-        onClick={onOpenQrModal}
-        className="flex flex-col items-center gap-0.5 py-1 px-2 rounded-xl text-slate-400 hover:text-slate-600 transition"
+        onClick={() => {
+          setActiveTab('wishlist');
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }}
+        className={`flex flex-col items-center gap-0.5 py-1 px-2 rounded-xl transition ${
+          activeTab === 'wishlist' ? 'text-rose-600 font-bold' : 'text-slate-400'
+        }`}
       >
-        <QrCode className="w-5 h-5" />
-        <span className="text-[10px]">폰 연동</span>
+        <Heart className={`w-5 h-5 ${activeTab === 'wishlist' ? 'fill-rose-500' : ''}`} />
+        <span className="text-[10px]">위시리스트</span>
       </button>
 
       {/* Settings */}

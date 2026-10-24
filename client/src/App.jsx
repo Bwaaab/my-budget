@@ -9,7 +9,8 @@ import QrCodeModal from './components/QrCodeModal';
 import SettingsModal from './components/SettingsModal';
 import ReceiptViewerModal from './components/ReceiptViewerModal';
 import MobileBottomNav from './components/MobileBottomNav';
-import { Sparkles, UploadCloud, Smartphone } from 'lucide-react';
+import Wishlist from './components/Wishlist';
+import { Sparkles, UploadCloud, Smartphone, Wallet, Heart } from 'lucide-react';
 
 // Helper: Client-side stats computation (used on GitHub Pages / Serverless)
 function computeClientStats(txList, year, month, monthlyBudget = 1200000) {
@@ -78,6 +79,7 @@ export default function App() {
   const [viewingReceiptPath, setViewingReceiptPath] = useState('');
   const [editingTx, setEditingTx] = useState(null);
   const [initialFileForScanner, setInitialFileForScanner] = useState(null);
+  const [currentView, setCurrentView] = useState('budget'); // 'budget' | 'wishlist'
 
   const [activeMobileTab, setActiveMobileTab] = useState('overview');
   const [isDraggingOver, setIsDraggingOver] = useState(false);
@@ -411,72 +413,109 @@ export default function App() {
       />
 
       {/* Main Content Container */}
-      <main className="max-w-6xl w-full mx-auto px-3 sm:px-6 pt-4 sm:pt-6 space-y-5 flex-1">
-        {/* Quick Shortcut Hero Banner for Captures */}
-        <div className="bg-gradient-to-r from-indigo-600 via-indigo-700 to-violet-700 rounded-3xl p-4 sm:p-6 text-white shadow-lg shadow-indigo-200 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="space-y-1 text-center sm:text-left">
-            <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-white/20 text-yellow-300 text-xs font-semibold backdrop-blur-xs">
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>영수증 · 카드 알림 문자 · 송금 내역</span>
-            </div>
-            <h2 className="text-lg sm:text-2xl font-extrabold tracking-tight">
-              귀찮은 가계부 작성, 캡처 한 장이면 끝!
-            </h2>
-            <p className="text-xs sm:text-sm text-indigo-100 max-w-xl">
-              스마트폰 결제 알림창을 캡처해서 올리거나, PC에서 바로 <kbd className="px-1.5 py-0.5 bg-white/20 rounded font-mono font-bold">Ctrl+V</kbd> 로 붙여넣으세요. AI가 금액·상호·카테고리를 자동 입력합니다.
-            </p>
-          </div>
-
-          <div className="flex items-center gap-2 flex-shrink-0">
+      <main className="max-w-6xl w-full mx-auto px-3 sm:px-6 pt-3 sm:pt-5 space-y-5 flex-1">
+        {/* View Switcher Tabs (PC & Tablet) */}
+        <div className="flex items-center justify-between pb-1">
+          <div className="flex bg-slate-200/80 p-1 rounded-2xl text-xs sm:text-sm font-bold shadow-inner">
             <button
-              onClick={() => {
-                setInitialFileForScanner(null);
-                setIsScannerOpen(true);
-              }}
-              className="px-5 py-3 bg-white text-indigo-700 hover:bg-indigo-50 font-bold text-xs sm:text-sm rounded-2xl shadow-md transition active:scale-95 flex items-center gap-2"
+              onClick={() => setCurrentView('budget')}
+              className={`flex items-center gap-1.5 px-4 py-2 rounded-xl transition ${
+                currentView === 'budget'
+                  ? 'bg-white text-indigo-700 shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
             >
-              <Sparkles className="w-4 h-4 text-indigo-600" />
-              <span>캡처/영수증 올리기</span>
+              <Wallet className="w-4 h-4" />
+              <span>가계부 대시보드</span>
             </button>
             <button
-              onClick={() => setIsQrModalOpen(true)}
-              className="p-3 bg-white/10 hover:bg-white/20 text-white rounded-2xl backdrop-blur-xs transition"
-              title="스마트폰 연결 QR코드"
+              onClick={() => setCurrentView('wishlist')}
+              className={`flex items-center gap-1.5 px-4 py-2 rounded-xl transition ${
+                currentView === 'wishlist'
+                  ? 'bg-white text-rose-600 shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
             >
-              <Smartphone className="w-5 h-5" />
+              <Heart className={`w-4 h-4 ${currentView === 'wishlist' ? 'fill-rose-500' : ''}`} />
+              <span>사고 싶은 것 (위시리스트)</span>
             </button>
           </div>
         </div>
 
-        {/* 1. Monthly Overview Cards */}
-        <SummaryCards
-          stats={stats}
-          onOpenBudgetEdit={() => setIsSettingsModalOpen(true)}
-        />
-
-        {/* 2. Visual Charts (Category donut + Daily trend) */}
-        <ChartsView stats={stats} />
-
-        {/* 3. Detailed Transactions Section */}
-        <div id="transaction-section">
-          <TransactionList
-            transactions={transactions}
-            onEdit={(tx) => {
-              setEditingTx(tx);
-              setIsTxModalOpen(true);
-            }}
-            onDelete={handleDeleteTransaction}
-            onViewReceipt={(path) => setViewingReceiptPath(path)}
-            onOpenScanner={() => {
-              setInitialFileForScanner(null);
-              setIsScannerOpen(true);
-            }}
-            onOpenAddModal={() => {
-              setEditingTx(null);
-              setIsTxModalOpen(true);
-            }}
+        {currentView === 'wishlist' || activeMobileTab === 'wishlist' ? (
+          <Wishlist
+            remainingBudget={stats?.remainingBudget || 0}
+            onConvertToExpense={handleSaveTransaction}
           />
-        </div>
+        ) : (
+          <>
+            {/* Quick Shortcut Hero Banner for Captures */}
+            <div className="bg-gradient-to-r from-indigo-600 via-indigo-700 to-violet-700 rounded-3xl p-4 sm:p-6 text-white shadow-lg shadow-indigo-200 flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div className="space-y-1 text-center sm:text-left">
+                <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-white/20 text-yellow-300 text-xs font-semibold backdrop-blur-xs">
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>영수증 · 카드 알림 문자 · 송금 내역</span>
+                </div>
+                <h2 className="text-lg sm:text-2xl font-extrabold tracking-tight">
+                  귀찮은 가계부 작성, 캡처 한 장이면 끝!
+                </h2>
+                <p className="text-xs sm:text-sm text-indigo-100 max-w-xl">
+                  스마트폰 결제 알림창을 캡처해서 올리거나, PC에서 바로 <kbd className="px-1.5 py-0.5 bg-white/20 rounded font-mono font-bold">Ctrl+V</kbd> 로 붙여넣으세요. AI가 금액·상호·카테고리를 자동 입력합니다.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <button
+                  onClick={() => {
+                    setInitialFileForScanner(null);
+                    setIsScannerOpen(true);
+                  }}
+                  className="px-5 py-3 bg-white text-indigo-700 hover:bg-indigo-50 font-bold text-xs sm:text-sm rounded-2xl shadow-md transition active:scale-95 flex items-center gap-2"
+                >
+                  <Sparkles className="w-4 h-4 text-indigo-600" />
+                  <span>캡처/영수증 올리기</span>
+                </button>
+                <button
+                  onClick={() => setIsQrModalOpen(true)}
+                  className="p-3 bg-white/10 hover:bg-white/20 text-white rounded-2xl backdrop-blur-xs transition"
+                  title="스마트폰 연결 QR코드"
+                >
+                  <Smartphone className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* 1. Monthly Overview Cards */}
+            <SummaryCards
+              stats={stats}
+              onOpenBudgetEdit={() => setIsSettingsModalOpen(true)}
+            />
+
+            {/* 2. Visual Charts (Category donut + Daily trend) */}
+            <ChartsView stats={stats} />
+
+            {/* 3. Detailed Transactions Section */}
+            <div id="transaction-section">
+              <TransactionList
+                transactions={transactions}
+                onEdit={(tx) => {
+                  setEditingTx(tx);
+                  setIsTxModalOpen(true);
+                }}
+                onDelete={handleDeleteTransaction}
+                onViewReceipt={(path) => setViewingReceiptPath(path)}
+                onOpenScanner={() => {
+                  setInitialFileForScanner(null);
+                  setIsScannerOpen(true);
+                }}
+                onOpenAddModal={() => {
+                  setEditingTx(null);
+                  setIsTxModalOpen(true);
+                }}
+              />
+            </div>
+          </>
+        )}
       </main>
 
       {/* Modals */}
