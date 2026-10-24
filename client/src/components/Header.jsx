@@ -64,11 +64,20 @@ export default function Header({
           <button
             onClick={onSyncGoogleSheets}
             disabled={isSyncing}
-            className="flex items-center gap-1 px-2.5 sm:px-3 py-1.5 text-xs font-semibold rounded-xl border border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-800 shadow-xs transition active:scale-95"
+            className={`flex items-center gap-1 px-2.5 sm:px-3 py-1.5 text-xs font-semibold rounded-xl border transition active:scale-95 ${
+              hasGoogleSheets
+                ? 'border-zinc-300 bg-white hover:bg-zinc-50 text-zinc-900 shadow-xs'
+                : 'border-zinc-200 bg-zinc-50 text-zinc-500'
+            }`}
             title="구글 시트에서 최신 내역(지출·위시리스트·예산) 동기화"
           >
+            {hasGoogleSheets && (
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 flex-shrink-0"></span>
+            )}
             <RefreshCw className={`w-3.5 h-3.5 text-zinc-700 ${isSyncing ? 'animate-spin' : ''}`} />
-            <span className="hidden sm:inline text-xs">시트 동기화</span>
+            <span className="hidden sm:inline text-xs">
+              {hasGoogleSheets ? '시트 동기화' : '시트 연동 필요'}
+            </span>
           </button>
 
           {/* QR Code Phone Sync button (Desktop & Tablet only) */}

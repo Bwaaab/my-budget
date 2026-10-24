@@ -158,6 +158,8 @@ export default function SettingsModal({
   const [copiedCode, setCopiedCode] = useState(false);
   const [showCodeBox, setShowCodeBox] = useState(false);
   const [restoreStatus, setRestoreStatus] = useState('');
+  const [testResult, setTestResult] = useState('');
+  const [isTesting, setIsTesting] = useState(false);
 
   useEffect(() => {
     if (settings) {
@@ -178,6 +180,27 @@ export default function SettingsModal({
     });
     setSavedSuccess(true);
     setTimeout(() => setSavedSuccess(false), 2000);
+  };
+
+  const handleTestConnection = async () => {
+    if (!googleSheetsUrl.trim()) {
+      setTestResult('구글 시트 URL을 먼저 입력해 주세요.');
+      return;
+    }
+
+    setIsTesting(true);
+    setTestResult('구글 시트와 통신을 확인하는 중...');
+
+    try {
+      const res = await fetch(googleSheetsUrl.trim());
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setTestResult('🟢 연결 성공! 구글 시트와 완벽하게 연결되었습니다.');
+    } catch (err) {
+      setTestResult(`🔴 연결 실패: 구글 시트 웹앱 URL을 확인해 주세요. (${err.message})`);
+    } finally {
+      setIsTesting(false);
+    }
   };
 
   const handleCopyCode = () => {
@@ -265,20 +288,29 @@ export default function SettingsModal({
                   type="url"
                   placeholder="https://script.google.com/macros/s/.../exec"
                   value={googleSheetsUrl}
-                  onChange={(e) => setGoogleSheetsUrl(e.target.value)}
+                  onChange={(e) => {
+                    setGoogleSheetsUrl(e.target.value);
+                    setTestResult('');
+                  }}
                   className="flex-1 text-xs px-3 py-2 bg-white border border-zinc-200 rounded-xl focus:ring-1 focus:ring-zinc-600 outline-none"
                 />
-                {googleSheetsUrl && (
-                  <button
-                    type="button"
-                    onClick={onSyncGoogleSheets}
-                    className="px-3 py-2 bg-zinc-900 hover:bg-zinc-800 text-white rounded-xl text-xs font-semibold flex items-center gap-1 transition"
-                  >
-                    <RefreshCw className="w-3.5 h-3.5" />
-                    <span>동기화</span>
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={handleTestConnection}
+                  disabled={isTesting || !googleSheetsUrl.trim()}
+                  className="px-3 py-2 bg-zinc-900 hover:bg-zinc-800 disabled:opacity-50 text-white rounded-xl text-xs font-semibold flex items-center gap-1 transition"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isTesting ? 'animate-spin' : ''}`} />
+                  <span>연동 테스트</span>
+                </button>
               </div>
+              {testResult && (
+                <div className={`mt-2 p-2 rounded-lg text-xs font-medium ${
+                  testResult.startsWith('🟢') ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-rose-50 text-rose-800 border border-rose-200'
+                }`}>
+                  {testResult}
+                </div>
+              )}
             </div>
 
             {/* Quick 1-minute setup guide toggle */}
