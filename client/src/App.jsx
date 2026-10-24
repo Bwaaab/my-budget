@@ -374,7 +374,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-zinc-50/80 pb-24 md:pb-12 relative flex flex-col font-sans text-zinc-800">
+    <div className="min-h-screen bg-zinc-50/80 pb-24 md:pb-12 relative flex flex-col font-sans text-zinc-800 w-full max-w-full overflow-x-hidden">
       {/* Toast Notification */}
       {toastMessage && (
         <div className="fixed top-16 left-1/2 -translate-x-1/2 z-50 bg-zinc-900 text-white text-xs font-semibold px-4 py-2 rounded-xl shadow-lg border border-zinc-700 animate-fade-in">
@@ -413,7 +413,7 @@ export default function App() {
       />
 
       {/* Main Content Container */}
-      <main className="max-w-5xl w-full mx-auto px-3 sm:px-6 pt-3 sm:pt-4 space-y-4 flex-1">
+      <main className="max-w-5xl w-full mx-auto px-3 sm:px-6 pt-3 sm:pt-4 space-y-3 sm:space-y-4 flex-1 overflow-x-hidden">
         {/* View Switcher Tabs (PC & Tablet) */}
         <div className="flex items-center justify-between pb-1">
           <div className="flex bg-zinc-200/60 p-0.5 rounded-xl text-xs font-semibold">

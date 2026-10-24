@@ -14,19 +14,19 @@ export default function MobileBottomNav({
   onOpenSettingsModal
 }) {
   return (
-    <div className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 px-3 py-1.5 flex items-center justify-around shadow-lg">
+    <div className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-zinc-200/80 px-2 py-1.5 flex items-center justify-around shadow-xs">
       {/* Dashboard Tab */}
       <button
         onClick={() => {
           setActiveTab('overview');
           window.scrollTo({ top: 0, behavior: 'smooth' });
         }}
-        className={`flex flex-col items-center gap-0.5 py-1 px-2 rounded-xl transition ${
-          activeTab === 'overview' ? 'text-indigo-600 font-bold' : 'text-slate-400'
+        className={`flex flex-col items-center gap-0.5 py-1 px-2.5 rounded-xl transition ${
+          activeTab === 'overview' ? 'text-zinc-950 font-bold' : 'text-zinc-400'
         }`}
       >
-        <LayoutDashboard className="w-5 h-5" />
-        <span className="text-[10px]">대시보드</span>
+        <LayoutDashboard className="w-4 h-4" />
+        <span className="text-[10px] tracking-tight">대시보드</span>
       </button>
 
       {/* Transactions Tab */}
@@ -36,21 +36,21 @@ export default function MobileBottomNav({
           const el = document.getElementById('transaction-section');
           if (el) el.scrollIntoView({ behavior: 'smooth' });
         }}
-        className={`flex flex-col items-center gap-0.5 py-1 px-2 rounded-xl transition ${
-          activeTab === 'transactions' ? 'text-indigo-600 font-bold' : 'text-slate-400'
+        className={`flex flex-col items-center gap-0.5 py-1 px-2.5 rounded-xl transition ${
+          activeTab === 'transactions' ? 'text-zinc-950 font-bold' : 'text-zinc-400'
         }`}
       >
-        <Receipt className="w-5 h-5" />
-        <span className="text-[10px]">상세내역</span>
+        <Receipt className="w-4 h-4" />
+        <span className="text-[10px] tracking-tight">상세내역</span>
       </button>
 
-      {/* Center AI Scan Button */}
+      {/* Center AI Scan Button (Minimalist Black & White) */}
       <button
         onClick={onOpenScanner}
-        className="-mt-5 bg-gradient-to-r from-indigo-600 to-violet-600 text-white w-12 h-12 rounded-full flex items-center justify-center shadow-lg shadow-indigo-300 active:scale-90 transition border-2 border-white"
+        className="-mt-5 bg-zinc-900 text-white w-12 h-12 rounded-full flex items-center justify-center shadow-md active:scale-90 transition border-2 border-white flex-shrink-0"
         title="AI 캡처 인식"
       >
-        <Sparkles className="w-6 h-6 text-yellow-300" />
+        <Sparkles className="w-5 h-5 text-white" />
       </button>
 
       {/* Wishlist Tab */}
@@ -59,21 +59,21 @@ export default function MobileBottomNav({
           setActiveTab('wishlist');
           window.scrollTo({ top: 0, behavior: 'smooth' });
         }}
-        className={`flex flex-col items-center gap-0.5 py-1 px-2 rounded-xl transition ${
-          activeTab === 'wishlist' ? 'text-rose-600 font-bold' : 'text-slate-400'
+        className={`flex flex-col items-center gap-0.5 py-1 px-2.5 rounded-xl transition ${
+          activeTab === 'wishlist' ? 'text-zinc-950 font-bold' : 'text-zinc-400'
         }`}
       >
-        <Heart className={`w-5 h-5 ${activeTab === 'wishlist' ? 'fill-rose-500' : ''}`} />
-        <span className="text-[10px]">위시리스트</span>
+        <Heart className={`w-4 h-4 ${activeTab === 'wishlist' ? 'fill-zinc-900' : ''}`} />
+        <span className="text-[10px] tracking-tight">위시리스트</span>
       </button>
 
       {/* Settings */}
       <button
         onClick={onOpenSettingsModal}
-        className="flex flex-col items-center gap-0.5 py-1 px-2 rounded-xl text-slate-400 hover:text-slate-600 transition"
+        className="flex flex-col items-center gap-0.5 py-1 px-2.5 rounded-xl text-zinc-400 hover:text-zinc-900 transition"
       >
-        <Settings className="w-5 h-5" />
-        <span className="text-[10px]">설정</span>
+        <Settings className="w-4 h-4" />
+        <span className="text-[10px] tracking-tight">설정</span>
       </button>
     </div>
   );
