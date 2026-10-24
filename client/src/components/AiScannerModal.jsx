@@ -10,7 +10,7 @@ import {
   Receipt,
   RotateCcw
 } from 'lucide-react';
-import { CATEGORIES, PAYMENT_METHODS, formatKRW } from '../constants';
+import { CATEGORIES, PAYMENT_METHODS, formatKRW, getNecessity } from '../constants';
 
 // Compress & resize image on client (max 768px, JPEG 0.80)
 // Why 768px? Gemini Vision processes <=768px images as a SINGLE 258-token tile (vs 6x tokens for >768px),
@@ -130,8 +130,8 @@ async function getOrderedAvailableModels(cleanKey) {
 
 async function analyzeDirectWithGemini(base64Data, mimeType, apiKey) {
   const cleanKey = (apiKey || '').trim();
-  const prompt = `한국 가계부 결제/영수증/투자 캡처 이미지에서 아래 JSON만 즉시 출력하세요 (주식/ETF/코인 매수, 적금/예금/청약/ISA/연금/증권계좌 납입·이체는 반드시 type:"saving", category:"저축/투자"로 분류):
-{"type":"expense|saving|income","amount":숫자,"merchant":"상호명 또는 종목/계좌명","date":"YYYY-MM-DD","time":"HH:mm","category":"식비|카페/간식|마트/생필품|교통|문화/여가|쇼핑|의료/건강|주거/통신|저축/투자|급여|기타","payment_method":"카드/이체","memo":"간단요약"}`;
+  const prompt = `한국 가계부 결제/영수증/투자 캡처 이미지에서 아래 JSON만 즉시 출력하세요 (주식/ETF/코인 매수, 적금/예금/청약/ISA/연금/증권계좌 납입·이체는 반드시 type:"saving", category:"저축/투자"로 분류. 필수 생활비는 necessity:"need", 카페/간식/쇼핑/문화/배달야식/택시 등 줄일 수 있는 돈은 necessity:"want"):
+{"type":"expense|saving|income","necessity":"need|want","amount":숫자,"merchant":"상호명 또는 종목/계좌명","date":"YYYY-MM-DD","time":"HH:mm","category":"식비|카페/간식|마트/생필품|교통|문화/여가|쇼핑|의료/건강|주거/통신|저축/투자|급여|기타","payment_method":"카드/이체","memo":"간단요약"}`;
 
   const models = await getOrderedAvailableModels(cleanKey);
 
@@ -227,6 +227,7 @@ export default function AiScannerModal({
   // Extracted/Edited form state
   const [formData, setFormData] = useState({
     type: 'expense',
+    necessity: 'need',
     amount: '',
     merchant: '',
     date: new Date().toISOString().slice(0, 10),
@@ -315,6 +316,7 @@ export default function AiScannerModal({
           data.extracted.category === '투자';
         setFormData({
           type: isSaving ? 'saving' : data.extracted.type || 'expense',
+          necessity: isSaving ? 'need' : (data.extracted.necessity || getNecessity(data.extracted)),
           amount: data.extracted.amount ? String(data.extracted.amount) : '',
           merchant: data.extracted.merchant || '',
           date: data.extracted.date || new Date().toISOString().slice(0, 10),
@@ -602,6 +604,41 @@ export default function AiScannerModal({
                     수입
                   </button>
                 </div>
+
+                {/* Necessity Toggle (Only for expense) */}
+                {formData.type === 'expense' && (
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      지출 성격
+                    </label>
+                    <div className="grid grid-cols-2 gap-2 bg-slate-100 p-1 rounded-xl text-xs font-semibold">
+                      <button
+                        type="button"
+                        onClick={() => setFormData({ ...formData, necessity: 'need' })}
+                        className={`py-1.5 px-2 rounded-lg transition flex items-center justify-center gap-1.5 whitespace-nowrap ${
+                          formData.necessity !== 'want'
+                            ? 'bg-zinc-900 text-white shadow-xs'
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        <span>🟢 필수</span>
+                        <span className="text-[10px] opacity-80">(꼭 필요한 돈)</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setFormData({ ...formData, necessity: 'want' })}
+                        className={`py-1.5 px-2 rounded-lg transition flex items-center justify-center gap-1.5 whitespace-nowrap ${
+                          formData.necessity === 'want'
+                            ? 'bg-amber-600 text-white shadow-xs'
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        <span>🟠 선택</span>
+                        <span className="text-[10px] opacity-80">(아낄 수 있었던 돈)</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {/* Amount */}
                 <div>

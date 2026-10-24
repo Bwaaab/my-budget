@@ -7,7 +7,7 @@ import {
   Sparkles,
   Plus
 } from 'lucide-react';
-import { CATEGORIES, formatKRW, normalizeDateYMD, normalizeTimeHM, isSavingTx } from '../constants';
+import { CATEGORIES, formatKRW, normalizeDateYMD, normalizeTimeHM, isSavingTx, getNecessity } from '../constants';
 import CategoryIcon from './CategoryIcon';
 
 export default function TransactionList({
@@ -19,6 +19,7 @@ export default function TransactionList({
   onOpenAddModal
 }) {
   const [filterType, setFilterType] = useState('all');
+  const [filterNecessity, setFilterNecessity] = useState('all'); // 'all' | 'need' | 'want'
   const [filterCategory, setFilterCategory] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -28,6 +29,13 @@ export default function TransactionList({
     if (filterType === 'saving' && !saving) return false;
     if (filterType === 'expense' && (t.type !== 'expense' || saving)) return false;
     if (filterType === 'income' && t.type !== 'income') return false;
+
+    // Necessity filter (only applies to expenses)
+    if (filterNecessity !== 'all') {
+      if (t.type !== 'expense' || saving) return false;
+      if (getNecessity(t) !== filterNecessity) return false;
+    }
+
     if (filterCategory !== 'all' && t.category !== filterCategory) return false;
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
@@ -86,7 +94,10 @@ export default function TransactionList({
           {/* Type Toggle */}
           <div className="flex bg-zinc-100 rounded-xl p-0.5 text-xs font-semibold flex-shrink-0">
             <button
-              onClick={() => setFilterType('all')}
+              onClick={() => {
+                setFilterType('all');
+                setFilterNecessity('all');
+              }}
               className={`px-2.5 py-1 rounded-lg transition whitespace-nowrap ${
                 filterType === 'all' ? 'bg-white text-zinc-900 shadow-xs' : 'text-zinc-500 hover:text-zinc-900'
               }`}
@@ -102,7 +113,10 @@ export default function TransactionList({
               지출
             </button>
             <button
-              onClick={() => setFilterType('saving')}
+              onClick={() => {
+                setFilterType('saving');
+                setFilterNecessity('all');
+              }}
               className={`px-2.5 py-1 rounded-lg transition whitespace-nowrap ${
                 filterType === 'saving' ? 'bg-white text-indigo-700 shadow-xs' : 'text-zinc-500 hover:text-zinc-900'
               }`}
@@ -110,7 +124,10 @@ export default function TransactionList({
               저축
             </button>
             <button
-              onClick={() => setFilterType('income')}
+              onClick={() => {
+                setFilterType('income');
+                setFilterNecessity('all');
+              }}
               className={`px-2.5 py-1 rounded-lg transition whitespace-nowrap ${
                 filterType === 'income' ? 'bg-white text-zinc-900 shadow-xs' : 'text-zinc-500 hover:text-zinc-900'
               }`}
@@ -118,6 +135,36 @@ export default function TransactionList({
               수입
             </button>
           </div>
+
+          {/* Necessity sub-filter when Expense is selected */}
+          {filterType === 'expense' && (
+            <div className="flex bg-amber-50/70 border border-amber-200/50 rounded-xl p-0.5 text-xs font-semibold flex-shrink-0">
+              <button
+                onClick={() => setFilterNecessity('all')}
+                className={`px-2 py-0.5 rounded-lg transition whitespace-nowrap text-[11px] ${
+                  filterNecessity === 'all' ? 'bg-white text-zinc-900 shadow-xs' : 'text-zinc-500'
+                }`}
+              >
+                전체
+              </button>
+              <button
+                onClick={() => setFilterNecessity('need')}
+                className={`px-2 py-0.5 rounded-lg transition whitespace-nowrap text-[11px] ${
+                  filterNecessity === 'need' ? 'bg-white text-zinc-900 shadow-xs font-bold' : 'text-zinc-500'
+                }`}
+              >
+                필수
+              </button>
+              <button
+                onClick={() => setFilterNecessity('want')}
+                className={`px-2 py-0.5 rounded-lg transition whitespace-nowrap text-[11px] ${
+                  filterNecessity === 'want' ? 'bg-amber-600 text-white shadow-xs font-bold' : 'text-amber-700'
+                }`}
+              >
+                선택(아낄 돈)
+              </button>
+            </div>
+          )}
 
           {/* Category Dropdown */}
           <select
@@ -212,6 +259,17 @@ export default function TransactionList({
                                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-500 whitespace-nowrap flex-shrink-0">
                                   {t.payment_method}
                                 </span>
+                              )}
+                              {t.type === 'expense' && !isSavingTx(t) && (
+                                getNecessity(t) === 'want' ? (
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200/60 font-semibold whitespace-nowrap flex-shrink-0" title="선택 지출 (아낄 수 있었던 돈)">
+                                    선택
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-500 whitespace-nowrap flex-shrink-0" title="필수 지출 (꼭 필요한 돈)">
+                                    필수
+                                  </span>
+                                )
                               )}
                               {t.image_path && (
                                 <button

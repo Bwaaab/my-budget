@@ -36,7 +36,8 @@ const GOOGLE_SCRIPT_CODE = `function doGet(e) {
         category: String(row[5] || '기타'),
         merchant: String(row[6] || ''),
         payment_method: String(row[7] || ''),
-        memo: String(row[8] || '')
+        memo: String(row[8] || ''),
+        necessity: String(row[9] || (row[8] && row[8].includes('[선택]') ? 'want' : (row[8] && row[8].includes('[필수]') ? 'need' : '')))
       });
     }
   }
@@ -95,7 +96,7 @@ function doPost(e) {
     var txSheet = ss.getSheetByName('가계부') || ss.getActiveSheet();
     if (txSheet.getName() !== '가계부') txSheet.setName('가계부');
     if (txSheet.getLastRow() === 0) {
-      txSheet.appendRow(['ID', '일자', '시간', '구분', '금액', '카테고리', '상호/사용처', '결제수단', '메모']);
+      txSheet.appendRow(['ID', '일자', '시간', '구분', '금액', '카테고리', '상호/사용처', '결제수단', '메모', '필수/선택']);
     }
     var id = payload.id || Date.now();
     txSheet.appendRow([
@@ -107,7 +108,8 @@ function doPost(e) {
       payload.category || '기타',
       payload.merchant || '',
       payload.payment_method || '',
-      payload.memo || ''
+      payload.memo || '',
+      payload.type === 'expense' ? (payload.necessity === 'want' ? '선택' : '필수') : ''
     ]);
     return ContentService.createTextOutput(JSON.stringify({ success: true, id: id })).setMimeType(ContentService.MimeType.JSON);
   }
@@ -117,7 +119,7 @@ function doPost(e) {
     var allTxSheet = ss.getSheetByName('가계부') || ss.getActiveSheet();
     if (allTxSheet.getName() !== '가계부') allTxSheet.setName('가계부');
     allTxSheet.clear();
-    allTxSheet.appendRow(['ID', '일자', '시간', '구분', '금액', '카테고리', '상호/사용처', '결제수단', '메모']);
+    allTxSheet.appendRow(['ID', '일자', '시간', '구분', '금액', '카테고리', '상호/사용처', '결제수단', '메모', '필수/선택']);
     if (Array.isArray(payload.transactions)) {
       payload.transactions.forEach(function(t) {
         allTxSheet.appendRow([
@@ -129,7 +131,8 @@ function doPost(e) {
           t.category || '기타',
           t.merchant || '',
           t.payment_method || '',
-          t.memo || ''
+          t.memo || '',
+          t.type === 'expense' ? (t.necessity === 'want' ? '선택' : '필수') : ''
         ]);
       });
     }

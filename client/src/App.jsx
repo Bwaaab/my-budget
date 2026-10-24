@@ -12,7 +12,7 @@ import ReceiptViewerModal from './components/ReceiptViewerModal';
 import MobileBottomNav from './components/MobileBottomNav';
 import Wishlist from './components/Wishlist';
 import { Sparkles, UploadCloud, Smartphone, Wallet, Heart } from 'lucide-react';
-import { normalizeDateYMD, normalizeTimeHM, isSavingTx } from './constants';
+import { normalizeDateYMD, normalizeTimeHM, isSavingTx, getNecessity } from './constants';
 
 // Helper: Client-side stats computation (used on GitHub Pages / Serverless)
 function computeClientStats(txList, year, month, monthlyBudget = 1200000) {
@@ -22,6 +22,8 @@ function computeClientStats(txList, year, month, monthlyBudget = 1200000) {
   const monthlyTx = allTx.filter(t => normalizeDateYMD(t.date).startsWith(pattern));
 
   let totalExpense = 0;
+  let totalNeedExpense = 0;
+  let totalWantExpense = 0;
   let totalIncome = 0;
   let totalSaving = 0;
   let allTimeSaving = 0;
@@ -48,6 +50,12 @@ function computeClientStats(txList, year, month, monthlyBudget = 1200000) {
       if (dailyMap[cleanDate]) dailyMap[cleanDate].saving += amt;
     } else if (t.type === 'expense') {
       totalExpense += amt;
+      const nec = getNecessity(t);
+      if (nec === 'want') {
+        totalWantExpense += amt;
+      } else {
+        totalNeedExpense += amt;
+      }
       catMap[t.category] = (catMap[t.category] || 0) + amt;
       if (dailyMap[cleanDate]) dailyMap[cleanDate].expense += amt;
     } else if (t.type === 'income') {
@@ -60,6 +68,8 @@ function computeClientStats(txList, year, month, monthlyBudget = 1200000) {
   const balance = totalIncome - totalExpense - totalSaving;
   const remainingBudget = monthlyBudget - totalExpense;
   const budgetPercent = monthlyBudget > 0 ? Math.round((totalExpense / monthlyBudget) * 100) : 0;
+  const needPercent = totalExpense > 0 ? Math.round((totalNeedExpense / totalExpense) * 100) : 0;
+  const wantPercent = totalExpense > 0 ? Math.round((totalWantExpense / totalExpense) * 100) : 0;
   const categories = Object.keys(catMap).map(k => ({
     category: k,
     amount: catMap[k],
@@ -70,6 +80,10 @@ function computeClientStats(txList, year, month, monthlyBudget = 1200000) {
     year,
     month,
     totalExpense,
+    totalNeedExpense,
+    totalWantExpense,
+    needPercent,
+    wantPercent,
     totalIncome,
     totalSaving,
     allTimeSaving,
@@ -408,6 +422,7 @@ export default function App() {
               ...t,
               type: saving ? 'saving' : (t.type || 'expense'),
               category: saving ? '저축/투자' : (t.category || '기타'),
+              necessity: saving ? undefined : (t.necessity || getNecessity(t)),
               date: normalizeDateYMD(t.date),
               time: normalizeTimeHM(t.time)
             };
@@ -634,7 +649,7 @@ export default function App() {
           const blob = items[i].getAsFile();
           if (blob) {
             e.preventDefault();
-            const isWishlistMode = isWishlistScannerOpen || (!isScannerOpen && (currentView === 'wishlist' || activeMobileTab === 'wishlist'));
+            const isWishlistMode = isWishlistScannerOpen || (!isScannerOpen && currentView === 'wishlist');
             if (isWishlistMode) {
               setInitialFileForWishlistScanner(blob);
               setIsWishlistScannerOpen(true);
@@ -652,7 +667,7 @@ export default function App() {
 
     window.addEventListener('paste', handlePaste);
     return () => window.removeEventListener('paste', handlePaste);
-  }, [currentView, activeMobileTab, isWishlistScannerOpen, isScannerOpen]);
+  }, [currentView, isWishlistScannerOpen, isScannerOpen]);
 
   // Global Drag & Drop listener — routes to Wishlist AI Scanner if on Wishlist view
   useEffect(() => {
@@ -672,7 +687,7 @@ export default function App() {
       if (e.dataTransfer.files && e.dataTransfer.files[0]) {
         const file = e.dataTransfer.files[0];
         if (file.type.startsWith('image/')) {
-          const isWishlistMode = isWishlistScannerOpen || (!isScannerOpen && (currentView === 'wishlist' || activeMobileTab === 'wishlist'));
+          const isWishlistMode = isWishlistScannerOpen || (!isScannerOpen && currentView === 'wishlist');
           if (isWishlistMode) {
             setInitialFileForWishlistScanner(file);
             setIsWishlistScannerOpen(true);
@@ -697,15 +712,17 @@ export default function App() {
       window.removeEventListener('dragover', handleDragOver);
       window.removeEventListener('drop', handleDrop);
     };
-  }, [currentView, activeMobileTab, isWishlistScannerOpen, isScannerOpen]);
+  }, [currentView, isWishlistScannerOpen, isScannerOpen]);
 
   // Save Transaction (from Scanner or Manual modal)
   const handleSaveTransaction = async (rawData) => {
     const saving = isSavingTx(rawData);
+    const necessity = saving ? undefined : (rawData.necessity || (rawData.type === 'expense' ? getNecessity(rawData) : 'need'));
     const data = {
       ...rawData,
       type: saving ? 'saving' : (rawData.type || 'expense'),
-      category: saving ? '저축/투자' : (rawData.category || '기타')
+      category: saving ? '저축/투자' : (rawData.category || '기타'),
+      necessity
     };
     const isUpdate = !!data.id;
     try {
@@ -936,13 +953,15 @@ export default function App() {
         <div className="flex items-center justify-between gap-2 pb-1">
           <div className="flex bg-zinc-200/60 p-0.5 rounded-xl text-xs font-semibold flex-shrink-0">
             <button
+              type="button"
               onClick={() => {
                 setCurrentView('budget');
-                if (activeMobileTab === 'wishlist') setActiveMobileTab('overview');
+                setActiveMobileTab('overview');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
               }}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition whitespace-nowrap ${
-                currentView === 'budget' && activeMobileTab !== 'wishlist'
-                  ? 'bg-white text-zinc-900 shadow-xs'
+              className={`cursor-pointer flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition active:scale-95 whitespace-nowrap ${
+                currentView === 'budget'
+                  ? 'bg-white text-zinc-900 shadow-xs font-bold'
                   : 'text-zinc-500 hover:text-zinc-900'
               }`}
             >
@@ -950,39 +969,43 @@ export default function App() {
               <span>가계부</span>
             </button>
             <button
+              type="button"
               onClick={() => {
                 setCurrentView('wishlist');
                 setActiveMobileTab('wishlist');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
               }}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition whitespace-nowrap ${
-                currentView === 'wishlist' || activeMobileTab === 'wishlist'
-                  ? 'bg-white text-zinc-900 shadow-xs'
+              className={`cursor-pointer flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition active:scale-95 whitespace-nowrap ${
+                currentView === 'wishlist'
+                  ? 'bg-white text-zinc-900 shadow-xs font-bold'
                   : 'text-zinc-500 hover:text-zinc-900'
               }`}
             >
-              <Heart className={`w-3.5 h-3.5 flex-shrink-0 ${currentView === 'wishlist' || activeMobileTab === 'wishlist' ? 'fill-zinc-800' : ''}`} />
+              <Heart className={`w-3.5 h-3.5 flex-shrink-0 ${currentView === 'wishlist' ? 'fill-zinc-800' : ''}`} />
               <span>위시리스트</span>
             </button>
           </div>
 
-          {currentView === 'budget' && activeMobileTab !== 'wishlist' && (
+          {currentView === 'budget' && (
             <div className="flex md:hidden items-center gap-1.5 flex-shrink-0">
               <button
+                type="button"
                 onClick={() => {
                   setInitialFileForScanner(null);
                   setIsScannerOpen(true);
                 }}
-                className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-white bg-zinc-900 rounded-xl whitespace-nowrap flex-shrink-0"
+                className="cursor-pointer flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-white bg-zinc-900 rounded-xl whitespace-nowrap flex-shrink-0 active:scale-95 transition"
               >
                 <Sparkles className="w-3 h-3 flex-shrink-0" />
                 <span>AI 인식</span>
               </button>
               <button
+                type="button"
                 onClick={() => {
                   setEditingTx(null);
                   setIsTxModalOpen(true);
                 }}
-                className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-zinc-700 bg-white border border-zinc-200 rounded-xl whitespace-nowrap flex-shrink-0"
+                className="cursor-pointer flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-zinc-700 bg-white border border-zinc-200 rounded-xl whitespace-nowrap flex-shrink-0 active:scale-95 transition"
               >
                 <span>+ 직접 입력</span>
               </button>
@@ -990,7 +1013,7 @@ export default function App() {
           )}
         </div>
 
-        {currentView === 'wishlist' || activeMobileTab === 'wishlist' ? (
+        {currentView === 'wishlist' ? (
           <Wishlist
             items={wishlist}
             onUpdateItems={setWishlist}
@@ -1168,13 +1191,27 @@ export default function App() {
 
       {/* Mobile Fixed Bottom Navigation */}
       <MobileBottomNav
-        activeTab={activeMobileTab}
+        activeTab={currentView === 'wishlist' ? 'wishlist' : activeMobileTab}
         setActiveTab={(tab) => {
-          setActiveMobileTab(tab);
-          setCurrentView(tab === 'wishlist' ? 'wishlist' : 'budget');
+          if (tab === 'wishlist') {
+            setCurrentView('wishlist');
+            setActiveMobileTab('wishlist');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          } else {
+            setCurrentView('budget');
+            setActiveMobileTab(tab);
+            if (tab === 'overview') {
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            } else if (tab === 'transactions') {
+              setTimeout(() => {
+                const el = document.getElementById('transaction-section');
+                if (el) el.scrollIntoView({ behavior: 'smooth' });
+              }, 50);
+            }
+          }
         }}
         onOpenScanner={() => {
-          if (currentView === 'wishlist' || activeMobileTab === 'wishlist') {
+          if (currentView === 'wishlist') {
             setInitialFileForWishlistScanner(null);
             setIsWishlistScannerOpen(true);
           } else {

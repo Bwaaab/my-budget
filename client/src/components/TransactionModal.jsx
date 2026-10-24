@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Check, Trash2 } from 'lucide-react';
-import { CATEGORIES, PAYMENT_METHODS, formatKRW, isSavingTx } from '../constants';
+import { CATEGORIES, PAYMENT_METHODS, formatKRW, isSavingTx, getNecessity } from '../constants';
 
 export default function TransactionModal({
   isOpen,
@@ -13,6 +13,7 @@ export default function TransactionModal({
 
   const [formData, setFormData] = useState({
     type: 'expense',
+    necessity: 'need',
     amount: '',
     merchant: '',
     date: new Date().toISOString().slice(0, 10),
@@ -28,6 +29,7 @@ export default function TransactionModal({
       setFormData({
         id: initialData.id,
         type: saving ? 'saving' : initialData.type || 'expense',
+        necessity: saving ? 'need' : getNecessity(initialData),
         amount: initialData.amount ? String(initialData.amount) : '',
         merchant: initialData.merchant || '',
         date: initialData.date || new Date().toISOString().slice(0, 10),
@@ -40,6 +42,7 @@ export default function TransactionModal({
     } else {
       setFormData({
         type: 'expense',
+        necessity: 'need',
         amount: '',
         merchant: '',
         date: new Date().toISOString().slice(0, 10),
@@ -137,6 +140,41 @@ export default function TransactionModal({
               수입
             </button>
           </div>
+
+          {/* Necessity Toggle (Only for expense) */}
+          {formData.type === 'expense' && (
+            <div>
+              <label className="block text-xs font-semibold text-zinc-700 mb-1">
+                지출 성격
+              </label>
+              <div className="grid grid-cols-2 gap-2 bg-zinc-100 p-1 rounded-xl text-xs font-semibold">
+                <button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, necessity: 'need' })}
+                  className={`py-1.5 px-2 rounded-lg transition flex items-center justify-center gap-1.5 whitespace-nowrap ${
+                    formData.necessity !== 'want'
+                      ? 'bg-zinc-900 text-white shadow-xs'
+                      : 'text-zinc-600 hover:text-zinc-900'
+                  }`}
+                >
+                  <span>🟢 필수</span>
+                  <span className="text-[10px] opacity-80">(꼭 필요한 돈)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, necessity: 'want' })}
+                  className={`py-1.5 px-2 rounded-lg transition flex items-center justify-center gap-1.5 whitespace-nowrap ${
+                    formData.necessity === 'want'
+                      ? 'bg-amber-600 text-white shadow-xs'
+                      : 'text-zinc-600 hover:text-zinc-900'
+                  }`}
+                >
+                  <span>🟠 선택</span>
+                  <span className="text-[10px] opacity-80">(아낄 수 있었던 돈)</span>
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Amount */}
           <div>

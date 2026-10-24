@@ -45,6 +45,21 @@ export function isSavingTx(t) {
   return t.type === 'saving' || t.category === '저축/투자' || t.category === '저축' || t.category === '투자';
 }
 
+export const NECESSITY_OPTIONS = [
+  { id: 'need', label: '필수', fullLabel: '필수 (꼭 필요한 돈)' },
+  { id: 'want', label: '선택', fullLabel: '선택 (아낄 수 있었던 돈)' }
+];
+
+export function getNecessity(t) {
+  if (!t) return 'need';
+  if (t.necessity === 'want' || t.necessity === '선택') return 'want';
+  if (t.necessity === 'need' || t.necessity === '필수') return 'need';
+  if (t.memo && (t.memo.includes('[선택]') || t.memo.includes('(선택)'))) return 'want';
+  // Default discretionary categories when unspecified
+  if (['카페/간식', '쇼핑', '문화/여가'].includes(t.category)) return 'want';
+  return 'need';
+}
+
 export function formatKRW(amount) {
   if (amount === undefined || amount === null) return '0원';
   return Number(amount).toLocaleString('ko-KR') + '원';

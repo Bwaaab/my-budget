@@ -35,11 +35,12 @@ async function recognizeReceiptOrCapture(imageBuffer, mimeType = 'image/jpeg', a
 
 추출 규칙:
 1. type: 일반 지출은 "expense", 저축·투자(주식/ETF/코인 매수, 적금/예금/청약/ISA/연금/증권계좌 납입·이체)는 "saving", 수입이나 환급/입금은 "income"
-2. amount: 최종 결제 금액 또는 투자/이체/입금 금액 (쉼표 없는 정수 숫자). 할인 적용 후 실 결제 금액 우선.
-3. merchant: 상호명 또는 투자 종목/증권사/수취인 이름 (예: "스타벅스 강남점", "토스증권 S&P500", "주택청약종합저축", "배달의민족", "쿠팡" 등).
-4. date: 결제/거래 일자 ("YYYY-MM-DD" 형식). 연도가 없으면 현재 연도(${new Date().getFullYear()})를 기본값으로 사용.
-5. time: 결제/거래 시각 ("HH:mm" 형식). 파악 불가 시 현재 시각 기준.
-6. category: 내용에 가장 어울리는 카테고리 하나를 다음 중 선택:
+2. necessity: 지출(expense)인 경우 필수 생활비(기본 식사, 장보기, 통근 교통, 주거, 공과금, 의료 등)는 "need", 선택적/아낄 수 있었던 지출(카페/간식, 디저트, 외식, 배달야식, 쇼핑, 문화/취미, 택시 등)은 "want"
+3. amount: 최종 결제 금액 또는 투자/이체/입금 금액 (쉼표 없는 정수 숫자). 할인 적용 후 실 결제 금액 우선.
+4. merchant: 상호명 또는 투자 종목/증권사/수취인 이름 (예: "스타벅스 강남점", "토스증권 S&P500", "주택청약종합저축", "배달의민족", "쿠팡" 등).
+5. date: 결제/거래 일자 ("YYYY-MM-DD" 형식). 연도가 없으면 현재 연도(${new Date().getFullYear()})를 기본값으로 사용.
+6. time: 결제/거래 시각 ("HH:mm" 형식). 파악 불가 시 현재 시각 기준.
+7. category: 내용에 가장 어울리는 카테고리 하나를 다음 중 선택:
    ["식비", "카페/간식", "마트/생필품", "교통", "문화/여가", "쇼핑", "의료/건강", "주거/통신", "저축/투자", "급여", "기타"]
 7. payment_method: 결제 수단 (예: "신한카드", "국민카드", "현대카드", "체크카드", "카카오페이", "토스페이", "계좌이체", "현금" 등). 카드사나 결제앱 이름이 보이면 구체적으로 작성.
 8. memo: 주요 품목이나 간단한 메모 (예: "아메리카노 외 1건", "점심 식사", "생필품 구매" 등).
@@ -115,6 +116,7 @@ async function recognizeReceiptOrCapture(imageBuffer, mimeType = 'image/jpeg', a
         success: true,
         extracted: {
           type: isSaving ? 'saving' : parsed.type === 'income' ? 'income' : 'expense',
+          necessity: isSaving ? 'need' : (parsed.necessity === 'want' ? 'want' : 'need'),
           amount: Number(parsed.amount) || 0,
           merchant: parsed.merchant || '미상',
           date: parsed.date || new Date().toISOString().slice(0, 10),
