@@ -7,7 +7,8 @@ import {
   Trash2,
   ShoppingBag,
   Star,
-  CheckCircle2
+  CheckCircle2,
+  Sparkles
 } from 'lucide-react';
 import { formatKRW } from '../constants';
 
@@ -16,7 +17,8 @@ export default function Wishlist({
   onUpdateItems,
   remainingBudget = 0,
   onConvertToExpense,
-  onSyncWishlist
+  onSyncWishlist,
+  onOpenWishlistScanner
 }) {
   const [localItems, setLocalItems] = useState(() => {
     const saved = localStorage.getItem('budget_wishlist');
@@ -145,13 +147,24 @@ export default function Wishlist({
           </p>
         </div>
 
-        <button
-          onClick={() => setIsAddModalOpen(true)}
-          className="px-4 py-2 bg-white hover:bg-zinc-100 text-zinc-900 font-bold text-xs rounded-xl shadow-xs transition active:scale-95 flex items-center gap-1.5 flex-shrink-0"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          <span>항목 추가</span>
-        </button>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {onOpenWishlistScanner && (
+            <button
+              onClick={onOpenWishlistScanner}
+              className="px-3.5 py-2 bg-white hover:bg-zinc-100 text-zinc-900 font-bold text-xs rounded-xl shadow-xs transition active:scale-95 flex items-center gap-1.5"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-zinc-700" />
+              <span>AI 캡처 등록</span>
+            </button>
+          )}
+          <button
+            onClick={() => setIsAddModalOpen(true)}
+            className="px-3.5 py-2 bg-zinc-800 hover:bg-zinc-700 text-white border border-zinc-700 font-bold text-xs rounded-xl shadow-xs transition active:scale-95 flex items-center gap-1.5"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>직접 추가</span>
+          </button>
+        </div>
       </div>
 
       {/* Filter Tabs */}
@@ -189,12 +202,26 @@ export default function Wishlist({
         <div className="bg-white rounded-2xl p-10 text-center border border-zinc-200/70 shadow-xs">
           <ShoppingBag className="w-10 h-10 text-zinc-300 mx-auto mb-2" />
           <h4 className="text-xs font-bold text-zinc-700">등록된 위시리스트 항목이 없습니다</h4>
-          <button
-            onClick={() => setIsAddModalOpen(true)}
-            className="mt-3 px-3.5 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-white font-bold text-xs rounded-xl transition"
-          >
-            + 항목 추가
-          </button>
+          <p className="text-[11px] text-zinc-400 mt-1">
+            쇼핑몰 상품 화면을 캡처해 AI로 간편하게 등록하거나 직접 입력해 보세요
+          </p>
+          <div className="mt-3.5 flex items-center justify-center gap-2">
+            {onOpenWishlistScanner && (
+              <button
+                onClick={onOpenWishlistScanner}
+                className="px-3.5 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-white font-bold text-xs rounded-xl transition flex items-center gap-1.5"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>AI 캡처 등록</span>
+              </button>
+            )}
+            <button
+              onClick={() => setIsAddModalOpen(true)}
+              className="px-3.5 py-1.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 font-bold text-xs rounded-xl transition"
+            >
+              + 직접 입력
+            </button>
+          </div>
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">

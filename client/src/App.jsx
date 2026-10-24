@@ -4,6 +4,7 @@ import SummaryCards from './components/SummaryCards';
 import ChartsView from './components/ChartsView';
 import TransactionList from './components/TransactionList';
 import AiScannerModal from './components/AiScannerModal';
+import WishlistAiScannerModal from './components/WishlistAiScannerModal';
 import TransactionModal from './components/TransactionModal';
 import QrCodeModal from './components/QrCodeModal';
 import SettingsModal from './components/SettingsModal';
@@ -135,12 +136,14 @@ export default function App() {
 
   // Modals & UI States
   const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [isWishlistScannerOpen, setIsWishlistScannerOpen] = useState(false);
   const [isTxModalOpen, setIsTxModalOpen] = useState(false);
   const [isQrModalOpen, setIsQrModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [viewingReceiptPath, setViewingReceiptPath] = useState('');
   const [editingTx, setEditingTx] = useState(null);
   const [initialFileForScanner, setInitialFileForScanner] = useState(null);
+  const [initialFileForWishlistScanner, setInitialFileForWishlistScanner] = useState(null);
   const [currentView, setCurrentView] = useState('budget'); // 'budget' | 'wishlist'
 
   const [activeMobileTab, setActiveMobileTab] = useState('overview');
@@ -431,10 +434,9 @@ export default function App() {
     setCurrentDate(new Date(year, currentDate.getMonth() + 1, 1));
   };
 
-  // Global Clipboard Paste (Ctrl+V) listener
+  // Global Clipboard Paste (Ctrl+V) listener — routes to Wishlist AI Scanner if on Wishlist view
   useEffect(() => {
     const handlePaste = (e) => {
-      // Don't capture if focused on input/textarea
       const tag = document.activeElement?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
 
@@ -446,9 +448,16 @@ export default function App() {
           const blob = items[i].getAsFile();
           if (blob) {
             e.preventDefault();
-            setInitialFileForScanner(blob);
-            setIsScannerOpen(true);
-            showToast('📋 클립보드 캡처 이미지를 감지하여 AI 분석을 시작합니다!');
+            const isWishlistMode = isWishlistScannerOpen || (!isScannerOpen && (currentView === 'wishlist' || activeMobileTab === 'wishlist'));
+            if (isWishlistMode) {
+              setInitialFileForWishlistScanner(blob);
+              setIsWishlistScannerOpen(true);
+              showToast('🛍️ 클립보드 상품 캡처를 감지하여 위시리스트 AI 분석을 시작합니다!');
+            } else {
+              setInitialFileForScanner(blob);
+              setIsScannerOpen(true);
+              showToast('📋 클립보드 영수증 캡처를 감지하여 가계부 AI 분석을 시작합니다!');
+            }
             break;
           }
         }
@@ -457,9 +466,9 @@ export default function App() {
 
     window.addEventListener('paste', handlePaste);
     return () => window.removeEventListener('paste', handlePaste);
-  }, []);
+  }, [currentView, activeMobileTab, isWishlistScannerOpen, isScannerOpen]);
 
-  // Global Drag & Drop listener
+  // Global Drag & Drop listener — routes to Wishlist AI Scanner if on Wishlist view
   useEffect(() => {
     const handleDragEnter = (e) => {
       e.preventDefault();
@@ -477,9 +486,16 @@ export default function App() {
       if (e.dataTransfer.files && e.dataTransfer.files[0]) {
         const file = e.dataTransfer.files[0];
         if (file.type.startsWith('image/')) {
-          setInitialFileForScanner(file);
-          setIsScannerOpen(true);
-          showToast('📸 드롭된 이미지를 감지하여 AI 분석을 시작합니다!');
+          const isWishlistMode = isWishlistScannerOpen || (!isScannerOpen && (currentView === 'wishlist' || activeMobileTab === 'wishlist'));
+          if (isWishlistMode) {
+            setInitialFileForWishlistScanner(file);
+            setIsWishlistScannerOpen(true);
+            showToast('🛍️ 드롭된 상품 이미지를 감지하여 위시리스트 AI 분석을 시작합니다!');
+          } else {
+            setInitialFileForScanner(file);
+            setIsScannerOpen(true);
+            showToast('📸 드롭된 영수증 이미지를 감지하여 가계부 AI 분석을 시작합니다!');
+          }
         }
       }
     };
@@ -495,7 +511,7 @@ export default function App() {
       window.removeEventListener('dragover', handleDragOver);
       window.removeEventListener('drop', handleDrop);
     };
-  }, []);
+  }, [currentView, activeMobileTab, isWishlistScannerOpen, isScannerOpen]);
 
   // Save Transaction (from Scanner or Manual modal)
   const handleSaveTransaction = async (data) => {
@@ -721,6 +737,10 @@ export default function App() {
             remainingBudget={stats?.remainingBudget || 0}
             onConvertToExpense={handleSaveTransaction}
             onSyncWishlist={handleSyncWishlist}
+            onOpenWishlistScanner={() => {
+              setInitialFileForWishlistScanner(null);
+              setIsWishlistScannerOpen(true);
+            }}
           />
         ) : (
           <>
@@ -770,6 +790,23 @@ export default function App() {
         initialFile={initialFileForScanner}
       />
 
+      <WishlistAiScannerModal
+        isOpen={isWishlistScannerOpen}
+        onClose={() => {
+          setIsWishlistScannerOpen(false);
+          setInitialFileForWishlistScanner(null);
+        }}
+        onAddWishlistItem={(newItem) => {
+          const updated = [newItem, ...wishlist];
+          handleSyncWishlist(updated);
+          showToast('🛍️ AI가 인식한 상품이 위시리스트에 등록되었습니다!');
+        }}
+        remainingBudget={stats?.remainingBudget || 0}
+        hasApiKey={settings?.hasApiKey}
+        onSaveApiKey={(key) => handleSaveSettings({ gemini_api_key: key })}
+        initialFile={initialFileForWishlistScanner}
+      />
+
       <TransactionModal
         isOpen={isTxModalOpen}
         onClose={() => {
@@ -812,8 +849,13 @@ export default function App() {
         activeTab={activeMobileTab}
         setActiveTab={setActiveMobileTab}
         onOpenScanner={() => {
-          setInitialFileForScanner(null);
-          setIsScannerOpen(true);
+          if (currentView === 'wishlist' || activeMobileTab === 'wishlist') {
+            setInitialFileForWishlistScanner(null);
+            setIsWishlistScannerOpen(true);
+          } else {
+            setInitialFileForScanner(null);
+            setIsScannerOpen(true);
+          }
         }}
         onOpenQrModal={() => setIsQrModalOpen(true)}
         onOpenSettingsModal={() => setIsSettingsModalOpen(true)}
