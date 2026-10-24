@@ -9,6 +9,7 @@ import {
   HeartPulse,
   Home,
   Landmark,
+  PiggyBank,
   Coins,
   MoreHorizontal
 } from 'lucide-react';
@@ -24,6 +25,7 @@ const ICON_MAP = {
   HeartPulse,
   Home,
   Landmark,
+  PiggyBank,
   Coins,
   MoreHorizontal
 };

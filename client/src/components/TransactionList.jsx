@@ -7,7 +7,7 @@ import {
   Sparkles,
   Plus
 } from 'lucide-react';
-import { CATEGORIES, formatKRW, normalizeDateYMD, normalizeTimeHM } from '../constants';
+import { CATEGORIES, formatKRW, normalizeDateYMD, normalizeTimeHM, isSavingTx } from '../constants';
 import CategoryIcon from './CategoryIcon';
 
 export default function TransactionList({
@@ -24,7 +24,10 @@ export default function TransactionList({
 
   // Filtering
   const filtered = transactions.filter((t) => {
-    if (filterType !== 'all' && t.type !== filterType) return false;
+    const saving = isSavingTx(t);
+    if (filterType === 'saving' && !saving) return false;
+    if (filterType === 'expense' && (t.type !== 'expense' || saving)) return false;
+    if (filterType === 'income' && t.type !== 'income') return false;
     if (filterCategory !== 'all' && t.category !== filterCategory) return false;
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
@@ -44,11 +47,13 @@ export default function TransactionList({
         date,
         items: [],
         dayExpense: 0,
+        daySaving: 0,
         dayIncome: 0
       };
     }
     acc[date].items.push(t);
-    if (t.type === 'expense') acc[date].dayExpense += t.amount;
+    if (isSavingTx(t)) acc[date].daySaving += t.amount;
+    else if (t.type === 'expense') acc[date].dayExpense += t.amount;
     else if (t.type === 'income') acc[date].dayIncome += t.amount;
     return acc;
   }, {});
@@ -95,6 +100,14 @@ export default function TransactionList({
               }`}
             >
               지출
+            </button>
+            <button
+              onClick={() => setFilterType('saving')}
+              className={`px-2.5 py-1 rounded-lg transition whitespace-nowrap ${
+                filterType === 'saving' ? 'bg-white text-indigo-700 shadow-xs' : 'text-zinc-500 hover:text-zinc-900'
+              }`}
+            >
+              저축
             </button>
             <button
               onClick={() => setFilterType('income')}
@@ -169,6 +182,9 @@ export default function TransactionList({
                     {group.dayExpense > 0 && (
                       <span className="text-zinc-600 whitespace-nowrap">지출 -{formatKRW(group.dayExpense)}</span>
                     )}
+                    {group.daySaving > 0 && (
+                      <span className="text-indigo-600 font-bold whitespace-nowrap">저축 {formatKRW(group.daySaving)}</span>
+                    )}
                     {group.dayIncome > 0 && (
                       <span className="text-zinc-800 font-bold whitespace-nowrap">수입 +{formatKRW(group.dayIncome)}</span>
                     )}
@@ -228,13 +244,22 @@ export default function TransactionList({
                         {/* Right: Amount & Actions */}
                         <div className="flex items-center gap-1.5 sm:gap-2.5 flex-shrink-0">
                           <div className="text-right whitespace-nowrap">
-                            <span
-                              className={`text-xs sm:text-sm font-bold tracking-tight whitespace-nowrap ${
-                                t.type === 'expense' ? 'text-zinc-900' : 'text-emerald-700'
-                              }`}
-                            >
-                              {t.type === 'expense' ? `-${formatKRW(t.amount)}` : `+${formatKRW(t.amount)}`}
-                            </span>
+                            {isSavingTx(t) ? (
+                              <span className="inline-flex items-center gap-1 text-xs sm:text-sm font-bold tracking-tight text-indigo-700 whitespace-nowrap">
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 font-bold whitespace-nowrap">
+                                  저축
+                                </span>
+                                {formatKRW(t.amount)}
+                              </span>
+                            ) : (
+                              <span
+                                className={`text-xs sm:text-sm font-bold tracking-tight whitespace-nowrap ${
+                                  t.type === 'expense' ? 'text-zinc-900' : 'text-emerald-700'
+                                }`}
+                              >
+                                {t.type === 'expense' ? `-${formatKRW(t.amount)}` : `+${formatKRW(t.amount)}`}
+                              </span>
+                            )}
                           </div>
 
                           {/* Action buttons */}

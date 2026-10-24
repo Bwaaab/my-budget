@@ -8,6 +8,7 @@ export const CATEGORIES = [
   { id: '의료/건강', name: '의료/건강', icon: 'HeartPulse', color: 'bg-rose-50 text-rose-800 border-rose-100' },
   { id: '주거/통신', name: '주거/통신', icon: 'Home', color: 'bg-stone-100 text-stone-700 border-stone-200' },
   { id: '금융/보험', name: '금융/보험', icon: 'Landmark', color: 'bg-zinc-100 text-zinc-700 border-zinc-200' },
+  { id: '저축/투자', name: '저축/투자', icon: 'PiggyBank', color: 'bg-indigo-50 text-indigo-800 border-indigo-100' },
   { id: '급여', name: '급여', icon: 'Coins', color: 'bg-emerald-50 text-emerald-800 border-emerald-100' },
   { id: '기타', name: '기타', icon: 'MoreHorizontal', color: 'bg-zinc-100 text-zinc-600 border-zinc-200' }
 ];
@@ -34,9 +35,15 @@ export const CATEGORY_COLORS = {
   '의료/건강': '#f43f5e',
   '주거/통신': '#64748b',
   '금융/보험': '#1e293b',
+  '저축/투자': '#4f46e5',
   '급여': '#10b981',
   '기타': '#94a3b8'
 };
+
+export function isSavingTx(t) {
+  if (!t) return false;
+  return t.type === 'saving' || t.category === '저축/투자' || t.category === '저축' || t.category === '투자';
+}
 
 export function formatKRW(amount) {
   if (amount === undefined || amount === null) return '0원';

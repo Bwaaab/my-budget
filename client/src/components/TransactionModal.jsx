@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Check, Trash2 } from 'lucide-react';
-import { CATEGORIES, PAYMENT_METHODS, formatKRW } from '../constants';
+import { CATEGORIES, PAYMENT_METHODS, formatKRW, isSavingTx } from '../constants';
 
 export default function TransactionModal({
   isOpen,
@@ -24,15 +24,16 @@ export default function TransactionModal({
 
   useEffect(() => {
     if (initialData) {
+      const saving = isSavingTx(initialData);
       setFormData({
         id: initialData.id,
-        type: initialData.type || 'expense',
+        type: saving ? 'saving' : initialData.type || 'expense',
         amount: initialData.amount ? String(initialData.amount) : '',
         merchant: initialData.merchant || '',
         date: initialData.date || new Date().toISOString().slice(0, 10),
         time: initialData.time || new Date().toTimeString().slice(0, 5),
-        category: initialData.category || '식비',
-        payment_method: initialData.payment_method || '신용카드',
+        category: saving ? '저축/투자' : initialData.category || '식비',
+        payment_method: initialData.payment_method || (saving ? '계좌이체' : '신용카드'),
         memo: initialData.memo || '',
         image_path: initialData.image_path || ''
       });
@@ -85,8 +86,14 @@ export default function TransactionModal({
           <div className="flex bg-zinc-100 rounded-xl p-1 text-xs font-semibold">
             <button
               type="button"
-              onClick={() => setFormData({ ...formData, type: 'expense' })}
-              className={`flex-1 py-1.5 rounded-lg transition ${
+              onClick={() =>
+                setFormData({
+                  ...formData,
+                  type: 'expense',
+                  category: formData.category === '저축/투자' ? '식비' : formData.category
+                })
+              }
+              className={`flex-1 py-1.5 rounded-lg transition whitespace-nowrap ${
                 formData.type === 'expense'
                   ? 'bg-zinc-900 text-white shadow-xs'
                   : 'text-zinc-600'
@@ -96,8 +103,32 @@ export default function TransactionModal({
             </button>
             <button
               type="button"
-              onClick={() => setFormData({ ...formData, type: 'income' })}
-              className={`flex-1 py-1.5 rounded-lg transition ${
+              onClick={() =>
+                setFormData({
+                  ...formData,
+                  type: 'saving',
+                  category: '저축/투자',
+                  payment_method: '계좌이체'
+                })
+              }
+              className={`flex-1 py-1.5 rounded-lg transition whitespace-nowrap ${
+                formData.type === 'saving'
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : 'text-zinc-600'
+              }`}
+            >
+              저축 · 투자
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                setFormData({
+                  ...formData,
+                  type: 'income',
+                  category: formData.category === '저축/투자' ? '급여' : formData.category
+                })
+              }
+              className={`flex-1 py-1.5 rounded-lg transition whitespace-nowrap ${
                 formData.type === 'income'
                   ? 'bg-zinc-900 text-white shadow-xs'
                   : 'text-zinc-600'
@@ -179,8 +210,19 @@ export default function TransactionModal({
                 <button
                   key={cat.id}
                   type="button"
-                  onClick={() => setFormData({ ...formData, category: cat.name })}
-                  className={`text-[11px] px-2.5 py-1 rounded-lg font-medium transition ${
+                  onClick={() =>
+                    setFormData({
+                      ...formData,
+                      category: cat.name,
+                      type:
+                        cat.name === '저축/투자'
+                          ? 'saving'
+                          : formData.type === 'saving'
+                          ? 'expense'
+                          : formData.type
+                    })
+                  }
+                  className={`text-[11px] px-2.5 py-1 rounded-lg font-medium transition whitespace-nowrap ${
                     formData.category === cat.name
                       ? 'bg-zinc-900 text-white shadow-xs font-bold'
                       : 'bg-white text-zinc-600 hover:bg-zinc-200/60 border border-zinc-200/50'

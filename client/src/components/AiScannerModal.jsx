@@ -130,8 +130,8 @@ async function getOrderedAvailableModels(cleanKey) {
 
 async function analyzeDirectWithGemini(base64Data, mimeType, apiKey) {
   const cleanKey = (apiKey || '').trim();
-  const prompt = `한국 가계부 결제/영수증 이미지에서 아래 JSON만 즉시 출력하세요:
-{"type":"expense","amount":숫자,"merchant":"상호명","date":"YYYY-MM-DD","time":"HH:mm","category":"식비|카페/간식|마트/생필품|교통|문화/여가|쇼핑|의료/건강|주거/통신|급여|기타","payment_method":"카드/이체","memo":"간단요약"}`;
+  const prompt = `한국 가계부 결제/영수증/투자 캡처 이미지에서 아래 JSON만 즉시 출력하세요 (주식/ETF/코인 매수, 적금/예금/청약/ISA/연금/증권계좌 납입·이체는 반드시 type:"saving", category:"저축/투자"로 분류):
+{"type":"expense|saving|income","amount":숫자,"merchant":"상호명 또는 종목/계좌명","date":"YYYY-MM-DD","time":"HH:mm","category":"식비|카페/간식|마트/생필품|교통|문화/여가|쇼핑|의료/건강|주거/통신|저축/투자|급여|기타","payment_method":"카드/이체","memo":"간단요약"}`;
 
   const models = await getOrderedAvailableModels(cleanKey);
 
@@ -308,14 +308,19 @@ export default function AiScannerModal({
       }
 
       if (data.extracted) {
+        const isSaving =
+          data.extracted.type === 'saving' ||
+          data.extracted.category === '저축/투자' ||
+          data.extracted.category === '저축' ||
+          data.extracted.category === '투자';
         setFormData({
-          type: data.extracted.type || 'expense',
+          type: isSaving ? 'saving' : data.extracted.type || 'expense',
           amount: data.extracted.amount ? String(data.extracted.amount) : '',
           merchant: data.extracted.merchant || '',
           date: data.extracted.date || new Date().toISOString().slice(0, 10),
           time: data.extracted.time || new Date().toTimeString().slice(0, 5),
-          category: data.extracted.category || '기타',
-          payment_method: data.extracted.payment_method || '신용카드',
+          category: isSaving ? '저축/투자' : data.extracted.category || '기타',
+          payment_method: data.extracted.payment_method || (isSaving ? '계좌이체' : '신용카드'),
           memo: data.extracted.memo || '',
           items: data.extracted.items || [],
           image_path: data.savedImagePath || objectUrl
@@ -546,8 +551,14 @@ export default function AiScannerModal({
                 <div className="flex bg-slate-100 rounded-xl p-1 text-xs font-semibold">
                   <button
                     type="button"
-                    onClick={() => setFormData({ ...formData, type: 'expense' })}
-                    className={`flex-1 py-1.5 rounded-lg transition ${
+                    onClick={() =>
+                      setFormData({
+                        ...formData,
+                        type: 'expense',
+                        category: formData.category === '저축/투자' ? '식비' : formData.category
+                      })
+                    }
+                    className={`flex-1 py-1.5 rounded-lg transition whitespace-nowrap ${
                       formData.type === 'expense'
                         ? 'bg-rose-500 text-white shadow-xs'
                         : 'text-slate-600'
@@ -557,8 +568,32 @@ export default function AiScannerModal({
                   </button>
                   <button
                     type="button"
-                    onClick={() => setFormData({ ...formData, type: 'income' })}
-                    className={`flex-1 py-1.5 rounded-lg transition ${
+                    onClick={() =>
+                      setFormData({
+                        ...formData,
+                        type: 'saving',
+                        category: '저축/투자',
+                        payment_method: '계좌이체'
+                      })
+                    }
+                    className={`flex-1 py-1.5 rounded-lg transition whitespace-nowrap ${
+                      formData.type === 'saving'
+                        ? 'bg-indigo-600 text-white shadow-xs'
+                        : 'text-slate-600'
+                    }`}
+                  >
+                    저축 · 투자
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setFormData({
+                        ...formData,
+                        type: 'income',
+                        category: formData.category === '저축/투자' ? '급여' : formData.category
+                      })
+                    }
+                    className={`flex-1 py-1.5 rounded-lg transition whitespace-nowrap ${
                       formData.type === 'income'
                         ? 'bg-emerald-600 text-white shadow-xs'
                         : 'text-slate-600'
@@ -640,8 +675,19 @@ export default function AiScannerModal({
                       <button
                         key={cat.id}
                         type="button"
-                        onClick={() => setFormData({ ...formData, category: cat.name })}
-                        className={`text-[11px] px-2.5 py-1 rounded-lg font-medium transition ${
+                        onClick={() =>
+                          setFormData({
+                            ...formData,
+                            category: cat.name,
+                            type:
+                              cat.name === '저축/투자'
+                                ? 'saving'
+                                : formData.type === 'saving'
+                                ? 'expense'
+                                : formData.type
+                          })
+                        }
+                        className={`text-[11px] px-2.5 py-1 rounded-lg font-medium transition whitespace-nowrap ${
                           formData.category === cat.name
                             ? 'bg-indigo-600 text-white shadow-xs font-bold'
                             : 'bg-white text-slate-600 hover:bg-slate-200/60 border border-slate-200/50'

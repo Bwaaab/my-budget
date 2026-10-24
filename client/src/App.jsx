@@ -12,28 +12,41 @@ import ReceiptViewerModal from './components/ReceiptViewerModal';
 import MobileBottomNav from './components/MobileBottomNav';
 import Wishlist from './components/Wishlist';
 import { Sparkles, UploadCloud, Smartphone, Wallet, Heart } from 'lucide-react';
-import { normalizeDateYMD, normalizeTimeHM } from './constants';
+import { normalizeDateYMD, normalizeTimeHM, isSavingTx } from './constants';
 
 // Helper: Client-side stats computation (used on GitHub Pages / Serverless)
 function computeClientStats(txList, year, month, monthlyBudget = 1200000) {
   const monthStr = String(month).padStart(2, '0');
   const pattern = `${year}-${monthStr}`;
-  const monthlyTx = (txList || []).filter(t => normalizeDateYMD(t.date).startsWith(pattern));
+  const allTx = txList || [];
+  const monthlyTx = allTx.filter(t => normalizeDateYMD(t.date).startsWith(pattern));
 
   let totalExpense = 0;
   let totalIncome = 0;
+  let totalSaving = 0;
+  let allTimeSaving = 0;
+
+  for (const t of allTx) {
+    if (isSavingTx(t)) {
+      allTimeSaving += Number(t.amount) || 0;
+    }
+  }
+
   const catMap = {};
   const daysInMonth = new Date(year, month, 0).getDate();
   const dailyMap = {};
   for (let i = 1; i <= daysInMonth; i++) {
     const dayKey = `${pattern}-${String(i).padStart(2, '0')}`;
-    dailyMap[dayKey] = { day: String(i), expense: 0, income: 0 };
+    dailyMap[dayKey] = { day: String(i), expense: 0, income: 0, saving: 0 };
   }
 
   for (const t of monthlyTx) {
     const amt = Number(t.amount) || 0;
     const cleanDate = normalizeDateYMD(t.date);
-    if (t.type === 'expense') {
+    if (isSavingTx(t)) {
+      totalSaving += amt;
+      if (dailyMap[cleanDate]) dailyMap[cleanDate].saving += amt;
+    } else if (t.type === 'expense') {
       totalExpense += amt;
       catMap[t.category] = (catMap[t.category] || 0) + amt;
       if (dailyMap[cleanDate]) dailyMap[cleanDate].expense += amt;
@@ -43,7 +56,8 @@ function computeClientStats(txList, year, month, monthlyBudget = 1200000) {
     }
   }
 
-  const balance = totalIncome - totalExpense;
+  // Cash left to spend right now = Income - Expense - Saving
+  const balance = totalIncome - totalExpense - totalSaving;
   const remainingBudget = monthlyBudget - totalExpense;
   const budgetPercent = monthlyBudget > 0 ? Math.round((totalExpense / monthlyBudget) * 100) : 0;
   const categories = Object.keys(catMap).map(k => ({
@@ -57,6 +71,8 @@ function computeClientStats(txList, year, month, monthlyBudget = 1200000) {
     month,
     totalExpense,
     totalIncome,
+    totalSaving,
+    allTimeSaving,
     balance,
     monthlyBudget,
     remainingBudget,
@@ -386,11 +402,16 @@ export default function App() {
       if (data && typeof data === 'object' && !Array.isArray(data)) {
         // 1. Transactions — Google Sheets is the Single Source of Truth (respects deletions)
         if (Array.isArray(data.transactions)) {
-          const normalizedTx = data.transactions.map(t => ({
-            ...t,
-            date: normalizeDateYMD(t.date),
-            time: normalizeTimeHM(t.time)
-          }));
+          const normalizedTx = data.transactions.map(t => {
+            const saving = isSavingTx(t);
+            return {
+              ...t,
+              type: saving ? 'saving' : (t.type || 'expense'),
+              category: saving ? '저축/투자' : (t.category || '기타'),
+              date: normalizeDateYMD(t.date),
+              time: normalizeTimeHM(t.time)
+            };
+          });
           localStorage.setItem('budget_local_transactions', JSON.stringify(normalizedTx));
           const monthStr = String(month).padStart(2, '0');
           const pattern = `${year}-${monthStr}`;
@@ -679,7 +700,13 @@ export default function App() {
   }, [currentView, activeMobileTab, isWishlistScannerOpen, isScannerOpen]);
 
   // Save Transaction (from Scanner or Manual modal)
-  const handleSaveTransaction = async (data) => {
+  const handleSaveTransaction = async (rawData) => {
+    const saving = isSavingTx(rawData);
+    const data = {
+      ...rawData,
+      type: saving ? 'saving' : (rawData.type || 'expense'),
+      category: saving ? '저축/투자' : (rawData.category || '기타')
+    };
     const isUpdate = !!data.id;
     try {
       const url = isUpdate ? `/api/transactions/${data.id}` : '/api/transactions';

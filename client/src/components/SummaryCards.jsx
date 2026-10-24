@@ -1,11 +1,13 @@
 import React from 'react';
-import { Target } from 'lucide-react';
+import { Target, PiggyBank } from 'lucide-react';
 import { formatKRW } from '../constants';
 
 export default function SummaryCards({ stats, onOpenBudgetEdit }) {
   const {
     totalExpense = 0,
     totalIncome = 0,
+    totalSaving = 0,
+    allTimeSaving = 0,
     balance = 0,
     monthlyBudget = 1200000,
     remainingBudget = 0,
@@ -16,38 +18,58 @@ export default function SummaryCards({ stats, onOpenBudgetEdit }) {
 
   return (
     <div className="space-y-3 sm:space-y-4">
-      {/* 3 Metric Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        {/* Total Expense */}
-        <div className="bg-white rounded-2xl p-4 sm:p-5 border border-zinc-200/70 shadow-xs min-w-0">
-          <div className="text-xs font-medium text-zinc-500 mb-1.5 whitespace-nowrap">이번 달 지출</div>
-          <div className="text-xl sm:text-2xl lg:text-3xl font-extrabold text-zinc-900 tracking-tight whitespace-nowrap truncate">
+      {/* 4 Metric Cards (2x2 on Mobile, 4 columns on Desktop) */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
+        {/* 1. Total Expense */}
+        <div className="bg-white rounded-2xl p-3.5 sm:p-5 border border-zinc-200/70 shadow-xs min-w-0">
+          <div className="text-xs font-medium text-zinc-500 mb-1 sm:mb-1.5 whitespace-nowrap">이번 달 지출</div>
+          <div className="text-lg sm:text-2xl font-extrabold text-zinc-900 tracking-tight whitespace-nowrap truncate">
             {formatKRW(totalExpense)}
           </div>
-          <div className="mt-2 text-[11px] text-zinc-400 whitespace-nowrap">
-            소비 총액
+          <div className="mt-1.5 sm:mt-2 text-[11px] text-zinc-400 whitespace-nowrap truncate">
+            순수 소비 지출액
           </div>
         </div>
 
-        {/* Total Income */}
-        <div className="bg-white rounded-2xl p-4 sm:p-5 border border-zinc-200/70 shadow-xs min-w-0">
-          <div className="text-xs font-medium text-zinc-500 mb-1.5 whitespace-nowrap">이번 달 수입</div>
-          <div className="text-xl sm:text-2xl lg:text-3xl font-extrabold text-zinc-900 tracking-tight whitespace-nowrap truncate">
+        {/* 2. Total Saving / Investment */}
+        <div className="bg-zinc-900 text-white rounded-2xl p-3.5 sm:p-5 border border-zinc-800 shadow-xs min-w-0">
+          <div className="flex items-center justify-between gap-1 mb-1 sm:mb-1.5">
+            <span className="text-xs font-medium text-zinc-300 whitespace-nowrap">저축 · 투자</span>
+            <PiggyBank className="w-3.5 h-3.5 text-zinc-400 flex-shrink-0" />
+          </div>
+          <div className="text-lg sm:text-2xl font-extrabold text-white tracking-tight whitespace-nowrap truncate">
+            {formatKRW(totalSaving)}
+          </div>
+          <div className="mt-1.5 sm:mt-2 text-[11px] text-zinc-400 whitespace-nowrap truncate">
+            {allTimeSaving > totalSaving
+              ? `누적 총 ${formatKRW(allTimeSaving)}`
+              : '모아둔 미래 자산'}
+          </div>
+        </div>
+
+        {/* 3. Total Income */}
+        <div className="bg-white rounded-2xl p-3.5 sm:p-5 border border-zinc-200/70 shadow-xs min-w-0">
+          <div className="text-xs font-medium text-zinc-500 mb-1 sm:mb-1.5 whitespace-nowrap">이번 달 수입</div>
+          <div className="text-lg sm:text-2xl font-extrabold text-zinc-900 tracking-tight whitespace-nowrap truncate">
             {formatKRW(totalIncome)}
           </div>
-          <div className="mt-2 text-[11px] text-zinc-400 whitespace-nowrap">
+          <div className="mt-1.5 sm:mt-2 text-[11px] text-zinc-400 whitespace-nowrap truncate">
             급여 및 부수입
           </div>
         </div>
 
-        {/* Balance / Net Savings */}
-        <div className="bg-white rounded-2xl p-4 sm:p-5 border border-zinc-200/70 shadow-xs min-w-0">
-          <div className="text-xs font-medium text-zinc-500 mb-1.5 whitespace-nowrap">월 수지 (남은 돈)</div>
-          <div className={`text-xl sm:text-2xl lg:text-3xl font-extrabold tracking-tight whitespace-nowrap truncate ${balance >= 0 ? 'text-zinc-900' : 'text-rose-700'}`}>
+        {/* 4. Available Cash Balance (Income - Expense - Saving) */}
+        <div className="bg-white rounded-2xl p-3.5 sm:p-5 border border-zinc-200/70 shadow-xs min-w-0">
+          <div className="text-xs font-medium text-zinc-500 mb-1 sm:mb-1.5 whitespace-nowrap">가용 잔액 (쓸 수 있는 돈)</div>
+          <div className={`text-lg sm:text-2xl font-extrabold tracking-tight whitespace-nowrap truncate ${balance >= 0 ? 'text-zinc-900' : 'text-rose-700'}`}>
             {balance > 0 ? `+${formatKRW(balance)}` : formatKRW(balance)}
           </div>
-          <div className="mt-2 text-[11px] text-zinc-400 whitespace-nowrap">
-            {balance >= 0 ? '저축 가능한 잉여금' : '수입 초과 지출'}
+          <div className="mt-1.5 sm:mt-2 text-[11px] text-zinc-400 whitespace-nowrap truncate">
+            {totalSaving > 0
+              ? `저축 제외 실가용 현금`
+              : balance >= 0
+              ? '여유 현금'
+              : '수입 초과 지출'}
           </div>
         </div>
       </div>
