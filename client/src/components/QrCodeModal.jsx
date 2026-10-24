@@ -1,14 +1,18 @@
 import React, { useState } from 'react';
 import { X, Smartphone, Copy, Check, QrCode } from 'lucide-react';
 
-export default function QrCodeModal({ isOpen, onClose, networkInfo }) {
+export default function QrCodeModal({ isOpen, onClose, networkInfo, googleSheetsUrl }) {
   const [copied, setCopied] = useState(false);
 
   if (!isOpen) return null;
 
   // Use networkInfo if local server provided it, otherwise use current page URL (for GitHub Pages)
-  const mobileUrl = networkInfo?.mobileUrl || window.location.href;
-  const qrCodeDataUrl = networkInfo?.qrCodeDataUrl || `https://api.qrserver.com/v1/create-qr-code/?size=256x256&data=${encodeURIComponent(mobileUrl)}`;
+  let baseMobileUrl = (networkInfo?.mobileUrl || window.location.href).split('?')[0];
+  if (googleSheetsUrl) {
+    baseMobileUrl += `?sheet=${encodeURIComponent(googleSheetsUrl)}`;
+  }
+  const mobileUrl = baseMobileUrl;
+  const qrCodeDataUrl = `https://api.qrserver.com/v1/create-qr-code/?size=256x256&data=${encodeURIComponent(mobileUrl)}`;
 
   const handleCopy = () => {
     navigator.clipboard.writeText(mobileUrl);

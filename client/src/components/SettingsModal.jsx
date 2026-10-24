@@ -195,7 +195,13 @@ export default function SettingsModal({
       const res = await fetch(googleSheetsUrl.trim());
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      setTestResult('🟢 연결 성공! 구글 시트와 완벽하게 연결되었습니다.');
+      setTestResult('🟢 연결 성공! 구글 시트가 즉시 연동 및 저장되었습니다.');
+      // Auto-save on successful test so user never loses it
+      await onSaveSettings({
+        gemini_api_key: apiKey,
+        monthly_budget: Number(budget),
+        google_sheets_url: googleSheetsUrl.trim()
+      });
     } catch (err) {
       setTestResult(`🔴 연결 실패: 구글 시트 웹앱 URL을 확인해 주세요. (${err.message})`);
     } finally {

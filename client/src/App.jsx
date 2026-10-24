@@ -168,6 +168,35 @@ export default function App() {
 
   // Initial load
   useEffect(() => {
+    // Check if sheet URL is passed in query string (from QR code scan)
+    const urlParams = new URLSearchParams(window.location.search);
+    const sheetFromUrl = urlParams.get('sheet');
+    if (sheetFromUrl) {
+      localStorage.setItem('budget_sheets_url', sheetFromUrl);
+      window.history.replaceState({}, document.title, window.location.pathname);
+      fetch(sheetFromUrl)
+        .then(r => r.json())
+        .then(data => {
+          if (data && typeof data === 'object') {
+            if (Array.isArray(data.transactions)) {
+              setTransactions(data.transactions);
+              localStorage.setItem('budget_local_transactions', JSON.stringify(data.transactions));
+            }
+            if (Array.isArray(data.wishlist)) {
+              localStorage.setItem('budget_wishlist', JSON.stringify(data.wishlist));
+            }
+            if (data.settings && data.settings.monthly_budget) {
+              const b = Number(data.settings.monthly_budget);
+              localStorage.setItem('budget_monthly_target', String(b));
+              setSettings(prev => ({ ...prev, monthly_budget: b, google_sheets_url: sheetFromUrl }));
+            }
+          }
+          showToast('🔗 구글 시트와 즉시 연동되었습니다!');
+          fetchStats();
+        })
+        .catch(() => {});
+    }
+
     fetchTransactions();
     fetchStats();
     fetchSettings();
@@ -286,7 +315,7 @@ export default function App() {
         fetch(sheetsUrl, {
           method: 'POST',
           mode: 'no-cors',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
           body: JSON.stringify(data)
         });
       } catch (_) {}
@@ -328,19 +357,45 @@ export default function App() {
 
     // Always persist to localstorage
     if (newSettings.gemini_api_key) localStorage.setItem('budget_gemini_key', newSettings.gemini_api_key);
-    if (newSettings.google_sheets_url) localStorage.setItem('budget_sheets_url', newSettings.google_sheets_url);
-    if (newSettings.monthly_budget) {
+    if (newSettings.google_sheets_url !== undefined) {
+      localStorage.setItem('budget_sheets_url', newSettings.google_sheets_url);
+    }
+    if (newSettings.monthly_budget !== undefined) {
       localStorage.setItem('budget_monthly_target', String(newSettings.monthly_budget));
+    }
+
+    // Immediately update local state
+    setSettings(prev => ({
+      ...prev,
+      gemini_api_key: newSettings.gemini_api_key !== undefined ? newSettings.gemini_api_key : prev?.gemini_api_key,
+      hasApiKey: !!(newSettings.gemini_api_key || prev?.hasApiKey),
+      google_sheets_url: newSettings.google_sheets_url !== undefined ? newSettings.google_sheets_url : prev?.google_sheets_url,
+      monthly_budget: newSettings.monthly_budget !== undefined ? Number(newSettings.monthly_budget) : prev?.monthly_budget
+    }));
+
+    if (newSettings.monthly_budget !== undefined) {
+      const b = Number(newSettings.monthly_budget);
+      setStats(prev => {
+        if (!prev) return prev;
+        const rem = b - (prev.totalExpense || 0);
+        return {
+          ...prev,
+          monthlyBudget: b,
+          remainingBudget: rem,
+          budgetPercent: b > 0 ? Math.min(Math.round(((prev.totalExpense || 0) / b) * 100), 100) : 0
+        };
+      });
+
       const sheetsUrl = newSettings.google_sheets_url || localStorage.getItem('budget_sheets_url');
       if (sheetsUrl) {
         try {
           fetch(sheetsUrl, {
             method: 'POST',
             mode: 'no-cors',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
             body: JSON.stringify({
               action: 'update_budget',
-              monthly_budget: newSettings.monthly_budget
+              monthly_budget: b
             })
           });
         } catch (_) {}
@@ -360,7 +415,7 @@ export default function App() {
         fetch(sheetsUrl, {
           method: 'POST',
           mode: 'no-cors',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
           body: JSON.stringify({
             action: 'sync_wishlist',
             wishlist: wishlistItems
@@ -555,6 +610,7 @@ export default function App() {
         isOpen={isQrModalOpen}
         onClose={() => setIsQrModalOpen(false)}
         networkInfo={networkInfo}
+        googleSheetsUrl={settings?.google_sheets_url}
       />
 
       <SettingsModal
