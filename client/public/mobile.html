@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>스마트 가계부 모바일 캡처</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📱</text></svg>">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col font-sans p-4 select-none">
+  <!-- Header -->
+  <header class="flex items-center justify-between pb-4 border-b border-slate-800">
+    <div class="flex items-center gap-2">
+      <div class="w-8 h-8 rounded-xl bg-indigo-600 flex items-center justify-center text-lg">💰</div>
+      <div>
+        <h1 class="text-sm font-bold text-white">가계부 모바일 캡처</h1>
+        <p class="text-[10px] text-emerald-400">● 구글 시트 즉시 전송</p>
+      </div>
+    </div>
+    <button onclick="toggleSettings()" class="text-xs text-slate-400 bg-slate-800 px-2.5 py-1.5 rounded-lg border border-slate-700">
+      ⚙️ 설정
+    </button>
+  </header>
+
+  <!-- Settings Drawer / Modal -->
+  <div id="settingsBox" class="hidden bg-slate-800 rounded-2xl p-4 my-3 border border-slate-700 space-y-3 text-xs">
+    <h3 class="font-bold text-indigo-400">⚙️ 모바일 환경 설정</h3>
+    <div>
+      <label class="block text-slate-400 mb-1">구글 시트 웹앱 URL (배포 URL)</label>
+      <input id="sheetsUrl" type="url" placeholder="https://script.google.com/macros/s/.../exec" class="w-full bg-slate-900 p-2 rounded-xl border border-slate-700 text-white outline-none">
+    </div>
+    <div>
+      <label class="block text-slate-400 mb-1">Gemini API 키 (무료 AI 분석)</label>
+      <input id="geminiKey" type="password" placeholder="AIzaSy..." class="w-full bg-slate-900 p-2 rounded-xl border border-slate-700 text-white outline-none">
+      <a href="https://aistudio.google.com/app/apikey" target="_blank" class="text-[10px] text-indigo-400 underline block mt-1">무료 API 키 발급받기 ↗</a>
+    </div>
+    <button onclick="saveSettings()" class="w-full bg-indigo-600 hover:bg-indigo-500 font-bold py-2 rounded-xl text-white">
+      설정 저장
+    </button>
+  </div>
+
+  <!-- Main Action Center -->
+  <main class="flex-1 flex flex-col justify-center space-y-4 my-auto">
+    <!-- Image Upload & Camera Box -->
+    <div id="dropZone" class="border-2 border-dashed border-indigo-500/40 rounded-3xl p-6 text-center bg-slate-800/40 flex flex-col items-center justify-center space-y-3">
+      <div id="previewContainer" class="hidden w-full max-h-56 overflow-hidden rounded-2xl mb-2 border border-slate-700">
+        <img id="imagePreview" class="w-full h-full object-contain" />
+      </div>
+
+      <div id="uploadPrompt" class="space-y-1">
+        <div class="text-3xl">📸</div>
+        <p class="text-sm font-bold text-slate-200">결제 문자 · 영수증 캡처 올리기</p>
+        <p class="text-[11px] text-slate-400">캡처 사진을 올리면 AI가 알아서 분석합니다</p>
+      </div>
+
+      <div class="flex gap-2 w-full pt-1">
+        <label class="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white py-3 px-4 rounded-2xl font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-lg active:scale-95">
+          <span>📷 카메라 촬영</span>
+          <input type="file" accept="image/*" capture="environment" onchange="handleFileSelect(this.files[0])" class="hidden">
+        </label>
+        <label class="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-200 py-3 px-4 rounded-2xl font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer border border-slate-700 active:scale-95">
+          <span>📁 앨범 / 캡처</span>
+          <input type="file" accept="image/*" onchange="handleFileSelect(this.files[0])" class="hidden">
+        </label>
+      </div>
+    </div>
+
+    <!-- Status / Loading -->
+    <div id="statusBox" class="hidden text-center text-xs p-3 rounded-2xl bg-indigo-950/60 text-indigo-300 border border-indigo-800/50">
+      <span id="statusText">AI 분석 중...</span>
+    </div>
+
+    <!-- Extracted Form (editable before sending) -->
+    <div id="formBox" class="hidden bg-slate-800/90 rounded-3xl p-4 border border-slate-700 space-y-3">
+      <div class="flex gap-1.5 bg-slate-900 p-1 rounded-xl text-xs font-bold">
+        <button id="typeExpenseBtn" onclick="setType('expense')" class="flex-1 py-1.5 rounded-lg bg-rose-600 text-white">지출</button>
+        <button id="typeIncomeBtn" onclick="setType('income')" class="flex-1 py-1.5 rounded-lg text-slate-400">수입</button>
+      </div>
+
+      <div>
+        <label class="text-[10px] text-slate-400">금액</label>
+        <input id="formAmount" type="number" class="w-full text-xl font-black bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white outline-none">
+      </div>
+
+      <div class="grid grid-cols-2 gap-2">
+        <div>
+          <label class="text-[10px] text-slate-400">상호 / 사용처</label>
+          <input id="formMerchant" type="text" class="w-full text-xs bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-2 text-white outline-none">
+        </div>
+        <div>
+          <label class="text-[10px] text-slate-400">카테고리</label>
+          <input id="formCategory" type="text" class="w-full text-xs bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-2 text-white outline-none">
+        </div>
+      </div>
+
+      <div class="grid grid-cols-2 gap-2">
+        <div>
+          <label class="text-[10px] text-slate-400">일자</label>
+          <input id="formDate" type="date" class="w-full text-xs bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-2 text-white outline-none">
+        </div>
+        <div>
+          <label class="text-[10px] text-slate-400">결제 수단</label>
+          <input id="formPayment" type="text" class="w-full text-xs bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-2 text-white outline-none">
+        </div>
+      </div>
+
+      <div>
+        <label class="text-[10px] text-slate-400">메모</label>
+        <input id="formMemo" type="text" placeholder="간단한 메모" class="w-full text-xs bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-2 text-white outline-none">
+      </div>
+
+      <button id="submitBtn" onclick="sendToGoogleSheets()" class="w-full py-3 bg-emerald-600 hover:bg-emerald-500 font-extrabold text-sm rounded-2xl text-white shadow-lg shadow-emerald-950 active:scale-95 flex items-center justify-center gap-1.5">
+        <span>구글 시트에 즉시 저장하기 🚀</span>
+      </button>
+    </div>
+  </main>
+
+  <footer class="pt-4 text-center text-[10px] text-slate-500">
+    PC 가계부에서 [구글 시트 동기화]를 누르면 언제든 최신 내역이 불러와집니다.
+  </footer>
+
+  <script>
+    let currentType = 'expense';
+    let currentFile = null;
+
+    // Load saved settings
+    document.getElementById('sheetsUrl').value = localStorage.getItem('budget_sheets_url') || '';
+    document.getElementById('geminiKey').value = localStorage.getItem('budget_gemini_key') || '';
+
+    function toggleSettings() {
+      const box = document.getElementById('settingsBox');
+      box.classList.toggle('hidden');
+    }
+
+    function saveSettings() {
+      const sheetsUrl = document.getElementById('sheetsUrl').value.trim();
+      const geminiKey = document.getElementById('geminiKey').value.trim();
+      localStorage.setItem('budget_sheets_url', sheetsUrl);
+      localStorage.setItem('budget_gemini_key', geminiKey);
+      alert('설정이 저장되었습니다!');
+      toggleSettings();
+    }
+
+    function setType(type) {
+      currentType = type;
+      const expBtn = document.getElementById('typeExpenseBtn');
+      const incBtn = document.getElementById('typeIncomeBtn');
+      if (type === 'expense') {
+        expBtn.className = 'flex-1 py-1.5 rounded-lg bg-rose-600 text-white';
+        incBtn.className = 'flex-1 py-1.5 rounded-lg text-slate-400';
+      } else {
+        expBtn.className = 'flex-1 py-1.5 rounded-lg text-slate-400';
+        incBtn.className = 'flex-1 py-1.5 rounded-lg bg-emerald-600 text-white';
+      }
+    }
+
+    async function handleFileSelect(file) {
+      if (!file) return;
+      currentFile = file;
+
+      // Show preview
+      const preview = document.getElementById('imagePreview');
+      preview.src = URL.createObjectURL(file);
+      document.getElementById('previewContainer').classList.remove('hidden');
+      document.getElementById('uploadPrompt').classList.add('hidden');
+
+      const geminiKey = localStorage.getItem('budget_gemini_key');
+      if (!geminiKey) {
+        alert('우측 상단 ⚙️ 설정에서 무료 Gemini API 키를 먼저 입력해 주세요!');
+        toggleSettings();
+        return;
+      }
+
+      showStatus('AI가 캡처본/영수증을 분석하고 있습니다... ✨');
+
+      try {
+        const base64 = await fileToBase64(file);
+        const extracted = await analyzeWithGemini(base64, file.type, geminiKey);
+        
+        // Fill form
+        document.getElementById('formAmount').value = extracted.amount || '';
+        document.getElementById('formMerchant').value = extracted.merchant || '';
+        document.getElementById('formCategory').value = extracted.category || '기타';
+        document.getElementById('formDate').value = extracted.date || new Date().toISOString().slice(0, 10);
+        document.getElementById('formPayment').value = extracted.payment_method || '카드';
+        document.getElementById('formMemo').value = extracted.memo || '';
+        setType(extracted.type || 'expense');
+
+        document.getElementById('formBox').classList.remove('hidden');
+        hideStatus();
+      } catch (err) {
+        showStatus('분석 실패: ' + err.message);
+        document.getElementById('formBox').classList.remove('hidden');
+      }
+    }
+
+    function fileToBase64(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const res = reader.result;
+          resolve(res.split(',')[1]);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    }
+
+    async function analyzeWithGemini(base64Data, mimeType, apiKey) {
+      const prompt = `당신은 한국 가계부 영수증 및 결제 내역 캡처본 분석 AI입니다. JSON으로만 응답하세요:
+{
+  "type": "expense" 또는 "income",
+  "amount": 금액(숫자),
+  "merchant": "상호명 또는 송금처",
+  "date": "YYYY-MM-DD",
+  "time": "HH:mm",
+  "category": "식비|카페/간식|마트/생필품|교통|문화/여가|쇼핑|의료/건강|주거/통신|급여|기타",
+  "payment_method": "카드 또는 계좌이체 등",
+  "memo": "간단 메모"
+}`;
+
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{
+            parts: [
+              { text: prompt },
+              { inline_data: { mime_type: mimeType, data: base64Data } }
+            ]
+          }],
+          generationConfig: { response_mime_type: "application/json" }
+        })
+      });
+
+      if (!res.ok) throw new Error('API 응답 에러');
+      const data = await res.json();
+      const txt = data.candidates?.[0]?.content?.parts?.[0]?.text;
+      return JSON.parse(txt);
+    }
+
+    async function sendToGoogleSheets() {
+      const sheetsUrl = localStorage.getItem('budget_sheets_url');
+      if (!sheetsUrl) {
+        alert('우측 상단 ⚙️ 설정에서 구글 시트 웹앱 URL을 입력해 주세요!');
+        toggleSettings();
+        return;
+      }
+
+      const amount = document.getElementById('formAmount').value;
+      const merchant = document.getElementById('formMerchant').value;
+      if (!amount || !merchant) {
+        alert('금액과 상호명을 입력해 주세요.');
+        return;
+      }
+
+      const btn = document.getElementById('submitBtn');
+      btn.disabled = true;
+      btn.innerText = '구글 시트로 전송 중...';
+
+      const payload = {
+        type: currentType,
+        amount: Number(amount),
+        merchant: merchant,
+        category: document.getElementById('formCategory').value || '기타',
+        date: document.getElementById('formDate').value,
+        payment_method: document.getElementById('formPayment').value,
+        memo: document.getElementById('formMemo').value,
+        time: new Date().toTimeString().slice(0, 5)
+      };
+
+      try {
+        await fetch(sheetsUrl, {
+          method: 'POST',
+          mode: 'no-cors', // Google Apps Script Web App standard cross-origin post
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        alert('🎉 구글 시트에 안전하게 저장되었습니다!');
+        // Reset form
+        document.getElementById('formBox').classList.add('hidden');
+        document.getElementById('previewContainer').classList.add('hidden');
+        document.getElementById('uploadPrompt').classList.remove('hidden');
+      } catch (err) {
+        alert('전송 실패: ' + err.message);
+      } finally {
+        btn.disabled = false;
+        btn.innerText = '구글 시트에 즉시 저장하기 🚀';
+      }
+    }
+
+    function showStatus(msg) {
+      const box = document.getElementById('statusBox');
+      box.classList.remove('hidden');
+      document.getElementById('statusText').innerText = msg;
+    }
+    function hideStatus() {
+      document.getElementById('statusBox').classList.add('hidden');
+    }
+  </script>
+</body>
+</html>
