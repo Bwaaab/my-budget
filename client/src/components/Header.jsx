@@ -6,9 +6,9 @@ import {
   Settings,
   Sparkles,
   Plus,
-  Wallet,
   RefreshCw
 } from 'lucide-react';
+import Logo from './Logo';
 
 export default function Header({
   currentDate,
@@ -30,10 +30,11 @@ export default function Header({
     <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-zinc-200/70 px-3 py-2.5 sm:px-6 w-full max-w-full overflow-hidden">
       <div className="max-w-5xl mx-auto flex items-center justify-between gap-2 w-full">
         {/* Brand & Month Navigator */}
-        <div className="flex items-center gap-2 sm:gap-4 min-w-0">
-          <div className="w-8 h-8 rounded-xl bg-zinc-900 flex-shrink-0 flex items-center justify-center text-white shadow-xs">
-            <Wallet className="w-4 h-4" />
-          </div>
+        <div className="flex items-center gap-2.5 sm:gap-4 min-w-0">
+          <Logo size={30} />
+          <h1 className="text-sm sm:text-base font-bold text-zinc-900 tracking-tight leading-tight hidden xs:block">
+            가계부
+          </h1>
 
           {/* Month Selector */}
           <div className="flex items-center bg-zinc-100 rounded-xl p-0.5 border border-zinc-200/50">
