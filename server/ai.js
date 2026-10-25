@@ -36,7 +36,7 @@ async function recognizeReceiptOrCapture(imageBuffer, mimeType = 'image/jpeg', a
 추출 규칙:
 1. type: 일반 지출은 "expense", 저축·투자(주식/ETF/코인 매수, 적금/예금/청약/ISA/연금/증권계좌 납입·이체)는 "saving", 수입이나 환급/입금은 "income"
 2. necessity: 지출(expense)인 경우 필수 생활비(기본 식사, 장보기, 통근 교통, 주거, 공과금, 의료 등)는 "need", 선택적/아낄 수 있었던 지출(카페/간식, 디저트, 외식, 배달야식, 쇼핑, 문화/취미, 택시 등)은 "want"
-3. amount: 최종 결제 금액 또는 투자/이체/입금 금액 (쉼표 없는 정수 숫자). 할인 적용 후 실 결제 금액 우선.
+3. amount: 영수증/화면의 '수수료 0원', '할인 0원', '혜택 0원' 등 부가 항목이 아니라, **실제로 결제/출금/이체/투자된 총 핵심 금액**을 쉼표 없는 정수 숫자로만 추출하세요. (절대 0원으로 추출하지 마세요. 화면에 거래 금액이 있다면 그 금액을 최우선으로 추출하세요.)
 4. merchant: 상호명 또는 투자 종목/증권사/수취인 이름 (예: "스타벅스 강남점", "토스증권 S&P500", "주택청약종합저축", "배달의민족", "쿠팡" 등).
 5. date: 결제/거래 일자 ("YYYY-MM-DD" 형식). 연도가 없으면 현재 연도(${new Date().getFullYear()})를 기본값으로 사용.
 6. time: 결제/거래 시각 ("HH:mm" 형식). 파악 불가 시 현재 시각 기준.
@@ -117,7 +117,7 @@ async function recognizeReceiptOrCapture(imageBuffer, mimeType = 'image/jpeg', a
         extracted: {
           type: isSaving ? 'saving' : parsed.type === 'income' ? 'income' : 'expense',
           necessity: isSaving ? 'need' : (parsed.necessity === 'want' ? 'want' : 'need'),
-          amount: Number(parsed.amount) || 0,
+          amount: typeof parsed.amount === 'number' ? Math.abs(Math.round(parsed.amount)) : (Number(String(parsed.amount || '').replace(/[^0-9]/g, '')) || 0),
           merchant: parsed.merchant || '미상',
           date: parsed.date || new Date().toISOString().slice(0, 10),
           time: parsed.time || '12:00',

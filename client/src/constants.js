@@ -60,19 +60,52 @@ export function getNecessity(t) {
   return 'need';
 }
 
-export function formatKRW(amount) {
-  if (amount === undefined || amount === null) return '0원';
-  return Number(amount).toLocaleString('ko-KR') + '원';
+export function cleanNumber(val) {
+  if (typeof val === 'number') {
+    return isNaN(val) ? 0 : Math.abs(Math.round(val));
+  }
+  if (!val) return 0;
+  const digits = String(val).replace(/[^0-9]/g, '');
+  const num = parseInt(digits, 10);
+  return isNaN(num) ? 0 : Math.abs(num);
 }
 
-// Normalize any date string (including Google Sheets Date.toString() like "Sat Oct 24 2026 00:00:00 GMT+0900...") to "YYYY-MM-DD"
-export function normalizeDateYMD(raw) {
+export function formatKRW(amount) {
+  const num = cleanNumber(amount);
+  return num.toLocaleString('ko-KR') + '원';
+}
+
+// Normalize any date string (including Google Sheets, "26.10.25", "10/25", "10월 25일") to "YYYY-MM-DD"
+export function normalizeDateYMD(raw, fallbackYear = new Date().getFullYear()) {
   if (!raw) return new Date().toISOString().slice(0, 10);
   const str = String(raw).trim();
+
+  // 1. "YYYY-MM-DD" or "YYYY.MM.DD" or "YYYY/MM/DD"
   const ymdMatch = str.match(/^(\d{4})[-./](\d{1,2})[-./](\d{1,2})/);
   if (ymdMatch) {
     return `${ymdMatch[1]}-${ymdMatch[2].padStart(2, '0')}-${ymdMatch[3].padStart(2, '0')}`;
   }
+
+  // 2. 2-digit year: "YY.MM.DD" (e.g. 26.10.25 or 24.10.25)
+  const yyMatch = str.match(/^(\d{2})[-./](\d{1,2})[-./](\d{1,2})/);
+  if (yyMatch) {
+    const fullYear = 2000 + Number(yyMatch[1]);
+    return `${fullYear}-${yyMatch[2].padStart(2, '0')}-${yyMatch[3].padStart(2, '0')}`;
+  }
+
+  // 3. Korean format: "YYYY년 M월 D일"
+  const korFullMatch = str.match(/(\d{4})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일/);
+  if (korFullMatch) {
+    return `${korFullMatch[1]}-${korFullMatch[2].padStart(2, '0')}-${korFullMatch[3].padStart(2, '0')}`;
+  }
+
+  // 4. Month-Day without year: "MM-DD", "MM.DD", "MM/DD" or "M월 D일"
+  const mdMatch = str.match(/^(\d{1,2})[-./](\d{1,2})/) || str.match(/(\d{1,2})\s*월\s*(\d{1,2})\s*일/);
+  if (mdMatch) {
+    return `${fallbackYear}-${mdMatch[1].padStart(2, '0')}-${mdMatch[2].padStart(2, '0')}`;
+  }
+
+  // 5. JavaScript Date parse fallback
   const parsed = new Date(str);
   if (!isNaN(parsed.getTime())) {
     const y = parsed.getFullYear();
@@ -80,7 +113,8 @@ export function normalizeDateYMD(raw) {
     const d = String(parsed.getDate()).padStart(2, '0');
     return `${y}-${m}-${d}`;
   }
-  return str.slice(0, 10);
+
+  return new Date().toISOString().slice(0, 10);
 }
 
 // Compact date display for cards & badges: "26.10.24"

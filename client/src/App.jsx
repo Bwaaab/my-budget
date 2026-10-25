@@ -12,7 +12,7 @@ import ReceiptViewerModal from './components/ReceiptViewerModal';
 import MobileBottomNav from './components/MobileBottomNav';
 import Wishlist from './components/Wishlist';
 import { Sparkles, UploadCloud, Smartphone, Wallet, Heart } from 'lucide-react';
-import { normalizeDateYMD, normalizeTimeHM, isSavingTx, getNecessity } from './constants';
+import { normalizeDateYMD, normalizeTimeHM, isSavingTx, getNecessity, cleanNumber } from './constants';
 
 // Helper: Client-side stats computation (used on GitHub Pages / Serverless)
 function computeClientStats(txList, year, month, monthlyBudget = 1200000) {
@@ -307,7 +307,7 @@ export default function App() {
 
     const monthStr = String(month).padStart(2, '0');
     const pattern = `${year}-${monthStr}`;
-    const filtered = localList.filter(t => !t.date || t.date.startsWith(pattern));
+    const filtered = localList.filter(t => normalizeDateYMD(t.date).startsWith(pattern));
     setTransactions(filtered);
   }, [year, month]);
 
@@ -430,7 +430,7 @@ export default function App() {
           localStorage.setItem('budget_local_transactions', JSON.stringify(normalizedTx));
           const monthStr = String(month).padStart(2, '0');
           const pattern = `${year}-${monthStr}`;
-          setTransactions(normalizedTx.filter(t => !t.date || t.date.startsWith(pattern)));
+          setTransactions(normalizedTx.filter(t => normalizeDateYMD(t.date).startsWith(pattern)));
           txCount = normalizedTx.length;
         }
 
@@ -715,34 +715,32 @@ export default function App() {
   }, [currentView, isWishlistScannerOpen, isScannerOpen]);
 
   // Save Transaction (from Scanner or Manual modal)
-  const handleSaveTransaction = async (rawData) => {
+  const handleSaveTransaction = (rawData) => {
     const saving = isSavingTx(rawData);
     const necessity = saving ? undefined : (rawData.necessity || (rawData.type === 'expense' ? getNecessity(rawData) : 'need'));
+    const cleanAmt = cleanNumber(rawData.amount);
+    const cleanDate = normalizeDateYMD(rawData.date);
+    const cleanTime = normalizeTimeHM(rawData.time) || new Date().toTimeString().slice(0, 5);
+
     const data = {
       ...rawData,
       type: saving ? 'saving' : (rawData.type || 'expense'),
       category: saving ? '저축/투자' : (rawData.category || '기타'),
-      necessity
+      necessity,
+      amount: cleanAmt,
+      date: cleanDate,
+      time: cleanTime
     };
     const isUpdate = !!data.id;
-    try {
-      const url = isUpdate ? `/api/transactions/${data.id}` : '/api/transactions';
-      const method = isUpdate ? 'PUT' : 'POST';
-      await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
-      });
-    } catch (_) {}
+    const txWithId = isUpdate ? data : { ...data, id: Date.now() };
 
-    // Update LocalStorage & state immediately
+    // 1. Update LocalStorage & state immediately (instant UI feedback)
     let list = [];
     try {
       const saved = localStorage.getItem('budget_local_transactions');
       list = saved ? JSON.parse(saved) : [];
     } catch (_) {}
 
-    const txWithId = isUpdate ? data : { ...data, id: Date.now() };
     if (isUpdate) {
       list = list.map(item => item.id === data.id ? { ...item, ...data } : item);
     } else {
@@ -750,19 +748,36 @@ export default function App() {
     }
     localStorage.setItem('budget_local_transactions', JSON.stringify(list));
 
-    const monthStr = String(month).padStart(2, '0');
-    const pattern = `${year}-${monthStr}`;
-    setTransactions(list.filter(t => !t.date || t.date.startsWith(pattern)));
+    const txYear = parseInt(cleanDate.slice(0, 4), 10);
+    const txMonth = parseInt(cleanDate.slice(5, 7), 10);
+    if (!isNaN(txYear) && !isNaN(txMonth) && (txYear !== year || txMonth !== month)) {
+      setCurrentDate(new Date(txYear, txMonth - 1, 1));
+    } else {
+      const monthStr = String(month).padStart(2, '0');
+      const pattern = `${year}-${monthStr}`;
+      setTransactions(list.filter(t => normalizeDateYMD(t.date).startsWith(pattern)));
+    }
+
     fetchStats();
     showToast(isUpdate ? '✅ 내역이 수정되었습니다!' : '🎉 가계부에 성공적으로 등록되었습니다!');
 
-    // Sync to Google Sheets
+    // 2. Background sync (never blocks UI)
+    try {
+      const url = isUpdate ? `/api/transactions/${data.id}` : '/api/transactions';
+      const method = isUpdate ? 'PUT' : 'POST';
+      fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      }).catch(() => {});
+    } catch (_) {}
+
     const sheetsUrl = (settings?.google_sheets_url || localStorage.getItem('budget_sheets_url') || '').trim();
     if (sheetsUrl) {
       if (isUpdate) {
-        await postToGoogleSheets(sheetsUrl, { action: 'sync_transactions', transactions: list });
+        postToGoogleSheets(sheetsUrl, { action: 'sync_transactions', transactions: list });
       } else {
-        await postToGoogleSheets(sheetsUrl, { action: 'add_transaction', ...txWithId });
+        postToGoogleSheets(sheetsUrl, { action: 'add_transaction', ...txWithId });
       }
     }
   };
@@ -785,7 +800,7 @@ export default function App() {
 
     const monthStr = String(month).padStart(2, '0');
     const pattern = `${year}-${monthStr}`;
-    setTransactions(list.filter(t => !t.date || t.date.startsWith(pattern)));
+    setTransactions(list.filter(t => normalizeDateYMD(t.date).startsWith(pattern)));
     fetchStats();
     showToast('🗑️ 내역이 삭제되었습니다.');
 

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Check, Trash2 } from 'lucide-react';
-import { CATEGORIES, PAYMENT_METHODS, formatKRW, isSavingTx, getNecessity } from '../constants';
+import { CATEGORIES, PAYMENT_METHODS, formatKRW, isSavingTx, getNecessity, cleanNumber, normalizeDateYMD, normalizeTimeHM } from '../constants';
 
 export default function TransactionModal({
   isOpen,
@@ -58,11 +58,16 @@ export default function TransactionModal({
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (!formData.amount || !formData.merchant) return;
+    const cleanAmt = cleanNumber(formData.amount);
+    const cleanMerchant = (formData.merchant || '').trim();
+    if (!cleanAmt || !cleanMerchant) return;
 
     onSave({
       ...formData,
-      amount: Number(formData.amount)
+      amount: cleanAmt,
+      merchant: cleanMerchant,
+      date: normalizeDateYMD(formData.date),
+      time: normalizeTimeHM(formData.time) || new Date().toTimeString().slice(0, 5)
     });
     onClose();
   };

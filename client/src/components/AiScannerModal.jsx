@@ -10,7 +10,7 @@ import {
   Receipt,
   RotateCcw
 } from 'lucide-react';
-import { CATEGORIES, PAYMENT_METHODS, formatKRW, getNecessity } from '../constants';
+import { CATEGORIES, PAYMENT_METHODS, formatKRW, getNecessity, cleanNumber, normalizeDateYMD, normalizeTimeHM } from '../constants';
 
 // Compress & resize image on client (max 768px, JPEG 0.80)
 // Why 768px? Gemini Vision processes <=768px images as a SINGLE 258-token tile (vs 6x tokens for >768px),
@@ -130,8 +130,21 @@ async function getOrderedAvailableModels(cleanKey) {
 
 async function analyzeDirectWithGemini(base64Data, mimeType, apiKey) {
   const cleanKey = (apiKey || '').trim();
-  const prompt = `한국 가계부 결제/영수증/투자 캡처 이미지에서 아래 JSON만 즉시 출력하세요 (주식/ETF/코인 매수, 적금/예금/청약/ISA/연금/증권계좌 납입·이체는 반드시 type:"saving", category:"저축/투자"로 분류. 필수 생활비는 necessity:"need", 카페/간식/쇼핑/문화/배달야식/택시 등 줄일 수 있는 돈은 necessity:"want"):
-{"type":"expense|saving|income","necessity":"need|want","amount":숫자,"merchant":"상호명 또는 종목/계좌명","date":"YYYY-MM-DD","time":"HH:mm","category":"식비|카페/간식|마트/생필품|교통|문화/여가|쇼핑|의료/건강|주거/통신|저축/투자|급여|기타","payment_method":"카드/이체","memo":"간단요약"}`;
+  const currentYear = new Date().getFullYear();
+  const prompt = `한국 가계부 결제/영수증/이체/투자 캡처 이미지에서 JSON을 추출하세요.
+
+필수 규칙:
+1. amount: 화면의 '수수료 0원', '할인 0원', '혜택 0원' 등이 아니라, **실제로 결제/출금/이체/투자된 총 핵심 금액**을 쉼표 없는 정수 숫자로만 추출하세요. (예: 15000, 4800, 250000). 0원이 아닌 실제 거래 금액을 최우선으로 찾으세요.
+2. date: 거래 일자는 "YYYY-MM-DD" 형식 (연도가 없으면 반드시 현재 연도 ${currentYear} 적용).
+3. merchant: 상호명 또는 가맹점명, 수취인, 투자종목명 (예: "스타벅스", "배달의민족", "토스증권 S&P500", "쿠팡").
+4. type: 일반 지출은 "expense", 주식/ETF/적금/예금/ISA/연금/청약 납입은 "saving", 급여/환급/입금은 "income".
+5. necessity: 필수 생활비(기본 식비, 마트, 교통, 공과금, 병원)는 "need", 선택적/아낄 수 있었던 소비(카페/디저트, 배달야식, 쇼핑, 택시, 여가)는 "want".
+6. category: "식비"|"카페/간식"|"마트/생필품"|"교통"|"문화/여가"|"쇼핑"|"의료/건강"|"주거/통신"|"저축/투자"|"급여"|"기타".
+7. payment_method: "카드"|"이체"|"현금" 등.
+8. memo: 핵심 품목 또는 간단 요약.
+
+출력 JSON 형식만 반환하세요:
+{"type":"expense","necessity":"need","amount":숫자,"merchant":"상호명","date":"${currentYear}-MM-DD","time":"HH:mm","category":"식비","payment_method":"카드","memo":"품목"}`;
 
   const models = await getOrderedAvailableModels(cleanKey);
 
@@ -151,7 +164,7 @@ async function analyzeDirectWithGemini(base64Data, mimeType, apiKey) {
         }],
         generationConfig: {
           temperature: 0,
-          maxOutputTokens: 256,
+          maxOutputTokens: 1024,
           response_mime_type: 'application/json'
         }
       })
@@ -314,13 +327,18 @@ export default function AiScannerModal({
           data.extracted.category === '저축/투자' ||
           data.extracted.category === '저축' ||
           data.extracted.category === '투자';
+
+        const cleanAmt = cleanNumber(data.extracted.amount);
+        const cleanDate = normalizeDateYMD(data.extracted.date);
+        const cleanTime = normalizeTimeHM(data.extracted.time) || new Date().toTimeString().slice(0, 5);
+
         setFormData({
           type: isSaving ? 'saving' : data.extracted.type || 'expense',
           necessity: isSaving ? 'need' : (data.extracted.necessity || getNecessity(data.extracted)),
-          amount: data.extracted.amount ? String(data.extracted.amount) : '',
+          amount: cleanAmt > 0 ? String(cleanAmt) : '',
           merchant: data.extracted.merchant || '',
-          date: data.extracted.date || new Date().toISOString().slice(0, 10),
-          time: data.extracted.time || new Date().toTimeString().slice(0, 5),
+          date: cleanDate,
+          time: cleanTime,
           category: isSaving ? '저축/투자' : data.extracted.category || '기타',
           payment_method: data.extracted.payment_method || (isSaving ? '계좌이체' : '신용카드'),
           memo: data.extracted.memo || '',
@@ -368,14 +386,20 @@ export default function AiScannerModal({
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (!formData.amount || !formData.merchant) {
-      setErrorMsg('금액과 상호(사용처)를 입력해 주세요.');
+    const cleanAmt = cleanNumber(formData.amount);
+    const cleanMerchant = (formData.merchant || '').trim();
+
+    if (!cleanAmt || !cleanMerchant) {
+      setErrorMsg('금액(0원 초과)과 상호(사용처)를 올바르게 입력해 주세요.');
       return;
     }
 
     onSaveTransaction({
       ...formData,
-      amount: Number(formData.amount)
+      amount: cleanAmt,
+      merchant: cleanMerchant,
+      date: normalizeDateYMD(formData.date),
+      time: normalizeTimeHM(formData.time) || new Date().toTimeString().slice(0, 5)
     });
     onClose();
   };
