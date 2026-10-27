@@ -16,9 +16,38 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // Setup directories
-const uploadsDir = path.join(__dirname, '..', 'uploads');
+const uploadsDir = path.resolve(__dirname, '..', 'uploads');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
+// Security: Sanitize image path to strictly allow only '/uploads/<safe-filename>'
+function sanitizeImagePath(rawPath) {
+  if (typeof rawPath !== 'string') return '';
+  const trimmed = rawPath.trim();
+  const match = trimmed.match(/^\/uploads\/([A-Za-z0-9._-]+)$/);
+  if (!match) return '';
+  const filename = match[1];
+  if (filename.startsWith('.') || filename.includes('..')) return '';
+  return `/uploads/${filename}`;
+}
+
+// Security: Resolve upload path safely within uploadsDir only (prevents arbitrary file deletion)
+function resolveUploadFile(imagePath) {
+  const safe = sanitizeImagePath(imagePath);
+  if (!safe) return null;
+  const basename = path.basename(safe);
+  const fullPath = path.resolve(uploadsDir, basename);
+  if (fullPath.startsWith(uploadsDir + path.sep)) {
+    return fullPath;
+  }
+  return null;
+}
+
+function getLocalTodayYMD() {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
 // Multer storage for image uploads
@@ -217,7 +246,7 @@ app.post('/api/transactions', (req, res) => {
       time || '',
       payment_method,
       memo || '',
-      image_path || '',
+      sanitizeImagePath(image_path),
       typeof items_json === 'string' ? items_json : JSON.stringify(items_json)
     );
 
@@ -259,7 +288,7 @@ app.put('/api/transactions/:id', (req, res) => {
       time || '',
       payment_method,
       memo || '',
-      image_path || '',
+      sanitizeImagePath(image_path),
       typeof items_json === 'string' ? items_json : JSON.stringify(items_json),
       id
     );
@@ -276,8 +305,8 @@ app.delete('/api/transactions/:id', (req, res) => {
     const { id } = req.params;
     const tx = db.prepare('SELECT image_path FROM transactions WHERE id = ?').get(id);
     if (tx && tx.image_path) {
-      const fullPath = path.join(__dirname, '..', tx.image_path.replace(/^\//, ''));
-      if (fs.existsSync(fullPath)) {
+      const fullPath = resolveUploadFile(tx.image_path);
+      if (fullPath && fs.existsSync(fullPath)) {
         try { fs.unlinkSync(fullPath); } catch (_) {}
       }
     }
@@ -503,7 +532,7 @@ app.get('/api/export-csv', (req, res) => {
 
     const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(r => r.join(','))].join('\r\n');
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="budget-${new Date().toISOString().slice(0, 10)}.csv"`);
+    res.setHeader('Content-Disposition', `attachment; filename="budget-${getLocalTodayYMD()}.csv"`);
     res.send(csvContent);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -551,7 +580,7 @@ app.post('/api/restore', (req, res) => {
           t.time || '',
           t.payment_method || '카드',
           t.memo || '',
-          t.image_path || '',
+          sanitizeImagePath(t.image_path),
           t.items_json || '[]'
         );
       }

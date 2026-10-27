@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Check, Trash2 } from 'lucide-react';
-import { CATEGORIES, PAYMENT_METHODS, formatKRW, isSavingTx, getNecessity, cleanNumber, normalizeDateYMD, normalizeTimeHM } from '../constants';
+import { CATEGORIES, PAYMENT_METHODS, formatKRW, isSavingTx, getNecessity, cleanNumber, normalizeDateYMD, normalizeTimeHM, todayYMD, nowHM } from '../constants';
 
 export default function TransactionModal({
   isOpen,
@@ -16,8 +16,8 @@ export default function TransactionModal({
     necessity: 'need',
     amount: '',
     merchant: '',
-    date: new Date().toISOString().slice(0, 10),
-    time: new Date().toTimeString().slice(0, 5),
+    date: todayYMD(),
+    time: nowHM(),
     category: '식비',
     payment_method: '신용카드',
     memo: ''
@@ -32,8 +32,8 @@ export default function TransactionModal({
         necessity: saving ? 'need' : getNecessity(initialData),
         amount: initialData.amount ? String(initialData.amount) : '',
         merchant: initialData.merchant || '',
-        date: initialData.date || new Date().toISOString().slice(0, 10),
-        time: initialData.time || new Date().toTimeString().slice(0, 5),
+        date: initialData.date || todayYMD(),
+        time: initialData.time || nowHM(),
         category: saving ? '저축/투자' : initialData.category || '식비',
         payment_method: initialData.payment_method || (saving ? '계좌이체' : '신용카드'),
         memo: initialData.memo || '',
@@ -45,8 +45,8 @@ export default function TransactionModal({
         necessity: 'need',
         amount: '',
         merchant: '',
-        date: new Date().toISOString().slice(0, 10),
-        time: new Date().toTimeString().slice(0, 5),
+        date: todayYMD(),
+        time: nowHM(),
         category: '식비',
         payment_method: '신용카드',
         memo: ''
@@ -67,7 +67,7 @@ export default function TransactionModal({
       amount: cleanAmt,
       merchant: cleanMerchant,
       date: normalizeDateYMD(formData.date),
-      time: normalizeTimeHM(formData.time) || new Date().toTimeString().slice(0, 5)
+      time: normalizeTimeHM(formData.time) || nowHM()
     });
     onClose();
   };

@@ -12,7 +12,8 @@ import ReceiptViewerModal from './components/ReceiptViewerModal';
 import MobileBottomNav from './components/MobileBottomNav';
 import Wishlist from './components/Wishlist';
 import { Sparkles, UploadCloud, Smartphone, Wallet, Heart } from 'lucide-react';
-import { normalizeDateYMD, normalizeTimeHM, isSavingTx, getNecessity, cleanNumber } from './constants';
+import { normalizeDateYMD, normalizeTimeHM, isSavingTx, getNecessity, cleanNumber, todayYMD, nowHM } from './constants';
+import { getSheetsToken, setSheetsToken, ensureSheetsToken, buildSheetsGetUrl } from './sheetsAuth';
 
 // Helper: Client-side stats computation (used on GitHub Pages / Serverless)
 function computeClientStats(txList, year, month, monthlyBudget = 1200000) {
@@ -105,7 +106,11 @@ async function postToGoogleSheets(sheetsUrl, payload) {
   if (!sheetsUrl || sheetsUrl.includes('/macros/library/')) return;
   writeRevision++;
   lastWriteTimestamp = Date.now();
-  const body = JSON.stringify(payload);
+
+  // Attach security token for Apps Script verification
+  const token = getSheetsToken();
+  const securePayload = { ...payload, token };
+  const body = JSON.stringify(securePayload);
 
   const task = activeWritePromise.then(async () => {
     try {
@@ -400,9 +405,17 @@ export default function App() {
       await activeWritePromise;
       const startRevision = writeRevision;
 
-      const res = await fetch(`${sheetsUrl}${sheetsUrl.includes('?') ? '&' : '?'}_t=${Date.now()}`);
+      const authenticatedGetUrl = buildSheetsGetUrl(sheetsUrl);
+      const res = await fetch(authenticatedGetUrl);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
+
+      if (data && data.error === 'unauthorized') {
+        if (!silent) {
+          showToast('🔒 구글 시트 보안 인증 실패: 토큰이 일치하지 않습니다. 설정에서 확인해 주세요.');
+        }
+        return;
+      }
 
       // If user performed a write/add/delete while GET was in flight, discard stale GET response
       if (writeRevision !== startRevision) {
@@ -453,49 +466,12 @@ export default function App() {
               createdAt: normalizeDateYMD(w.createdAt)
             }));
 
-          // One-time recovery of the 2 wishlist items from 2026-10-24 screenshot if one was overwritten by Settings X button
-          let recovered = false;
-          if (!localStorage.getItem('budget_restored_wish_20261024')) {
-            localStorage.setItem('budget_restored_wish_20261024', '1');
-            const snapshotItems = [
-              {
-                id: 1792840000001,
-                title: '첸이보 / 로드 트립 이타백 / 인형 캔뱃지 콘서트 아이돌 직관 굿즈',
-                price: 28900,
-                category: '패션/잡화',
-                priority: 4,
-                status: 'pending',
-                memo: '에스엠라지 / 오프화이트',
-                link: '',
-                createdAt: '2026-10-24'
-              },
-              {
-                id: 1792840000002,
-                title: '삼성 갤럭시 워치9 강화유리 패키지 크림, 40mm, 블루투스',
-                price: 426600,
-                category: '전자기기',
-                priority: 4,
-                status: 'pending',
-                memo: '네이버쇼핑(쇼마젠시), 최대할인가 적용(정가 499,000원), 무료배송',
-                link: '',
-                createdAt: '2026-10-24'
-              }
-            ];
-            for (const snap of snapshotItems) {
-              const exists = cleanWishlist.some(w => w.title && w.title.includes(snap.title.slice(0, 8)));
-              if (!exists) {
-                cleanWishlist.push(snap);
-                recovered = true;
-              }
-            }
-          }
-
           setWishlist(cleanWishlist);
           localStorage.setItem('budget_wishlist', JSON.stringify(cleanWishlist));
           wishCount = cleanWishlist.length;
 
-          // If recovered OR if old __SYS_CONFIG__ row was present in the wishlist sheet, clean up the wishlist sheet immediately
-          if (recovered || sysRow) {
+          // If old __SYS_CONFIG__ row was present in the wishlist sheet, clean up the wishlist sheet immediately
+          if (sysRow) {
             await postToGoogleSheets(sheetsUrl, {
               action: 'sync_wishlist',
               wishlist: cleanWishlist
@@ -576,19 +552,29 @@ export default function App() {
 
   // Initial load + Auto-sync from Google Sheets on startup & tab focus
   useEffect(() => {
+    // 1. Parse Hash parameters first (#sheet=...&token=...) for maximum security
+    const hash = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : '';
+    const hashParams = new URLSearchParams(hash);
+    const sheetFromHash = hashParams.get('sheet');
+    const tokenFromHash = hashParams.get('token');
+
+    // 2. Fallback to query params for legacy ?sheet=
     const urlParams = new URLSearchParams(window.location.search);
-    const sheetFromUrl = urlParams.get('sheet');
-    const keyFromUrl = urlParams.get('key');
-    if (keyFromUrl) {
-      localStorage.setItem('budget_gemini_key', keyFromUrl.trim());
-      setSettings(prev => ({ ...prev, gemini_api_key: keyFromUrl.trim(), hasApiKey: true }));
+    const sheetFromQuery = urlParams.get('sheet');
+
+    const incomingSheet = (sheetFromHash || sheetFromQuery || '').trim();
+    if (tokenFromHash) {
+      setSheetsToken(tokenFromHash.trim());
     }
-    if (sheetFromUrl && !sheetFromUrl.includes('/macros/library/')) {
-      localStorage.setItem('budget_sheets_url', sheetFromUrl.trim());
-      setSettings(prev => ({ ...prev, google_sheets_url: sheetFromUrl.trim() }));
-      window.history.replaceState({}, document.title, window.location.pathname);
-      showToast('🔗 구글 시트 및 AI 키가 자동 연결되었습니다!');
-    } else if (keyFromUrl) {
+
+    if (incomingSheet && !incomingSheet.includes('/macros/library/')) {
+      localStorage.setItem('budget_sheets_url', incomingSheet);
+      setSettings(prev => ({ ...prev, google_sheets_url: incomingSheet }));
+      showToast('🔗 구글 시트가 안전하게 자동 연결되었습니다!');
+    }
+
+    // Clean up address bar (remove hash and query params)
+    if (sheetFromHash || tokenFromHash || sheetFromQuery || urlParams.get('key')) {
       window.history.replaceState({}, document.title, window.location.pathname);
     }
 
@@ -597,9 +583,9 @@ export default function App() {
     fetchSettings();
     fetchNetworkInfo();
 
-    const activeSheet = (sheetFromUrl || localStorage.getItem('budget_sheets_url') || '').trim();
+    const activeSheet = (incomingSheet || localStorage.getItem('budget_sheets_url') || '').trim();
     if (activeSheet && !activeSheet.includes('/macros/library/')) {
-      handleSyncGoogleSheets(activeSheet, null, !sheetFromUrl);
+      handleSyncGoogleSheets(activeSheet, null, !incomingSheet);
     }
 
     // Auto-sync whenever user returns to the app/tab on mobile or PC
@@ -720,7 +706,7 @@ export default function App() {
     const necessity = saving ? undefined : (rawData.necessity || (rawData.type === 'expense' ? getNecessity(rawData) : 'need'));
     const cleanAmt = cleanNumber(rawData.amount);
     const cleanDate = normalizeDateYMD(rawData.date);
-    const cleanTime = normalizeTimeHM(rawData.time) || new Date().toTimeString().slice(0, 5);
+    const cleanTime = normalizeTimeHM(rawData.time) || nowHM();
 
     const data = {
       ...rawData,

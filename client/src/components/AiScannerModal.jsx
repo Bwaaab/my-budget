@@ -10,7 +10,21 @@ import {
   Receipt,
   RotateCcw
 } from 'lucide-react';
-import { CATEGORIES, PAYMENT_METHODS, formatKRW, getNecessity, cleanNumber, normalizeDateYMD, normalizeTimeHM } from '../constants';
+import { CATEGORIES, PAYMENT_METHODS, formatKRW, getNecessity, cleanNumber, normalizeDateYMD, normalizeTimeHM, todayYMD, nowHM } from '../constants';
+
+const createEmptyAiFormData = () => ({
+  type: 'expense',
+  necessity: 'need',
+  amount: '',
+  merchant: '',
+  date: todayYMD(),
+  time: nowHM(),
+  category: '식비',
+  payment_method: '신용카드',
+  memo: '',
+  items: [],
+  image_path: ''
+});
 
 // Compress & resize image on client (max 768px, JPEG 0.80)
 // Why 768px? Gemini Vision processes <=768px images as a SINGLE 258-token tile (vs 6x tokens for >768px),
@@ -238,19 +252,8 @@ export default function AiScannerModal({
   const [isSavingKey, setIsSavingKey] = useState(false);
 
   // Extracted/Edited form state
-  const [formData, setFormData] = useState({
-    type: 'expense',
-    necessity: 'need',
-    amount: '',
-    merchant: '',
-    date: new Date().toISOString().slice(0, 10),
-    time: new Date().toTimeString().slice(0, 5),
-    category: '식비',
-    payment_method: '신용카드',
-    memo: '',
-    items: [],
-    image_path: ''
-  });
+  const [formData, setFormData] = useState(createEmptyAiFormData);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const fileInputRef = useRef(null);
   const cameraInputRef = useRef(null);
@@ -262,7 +265,7 @@ export default function AiScannerModal({
     }
   }, [initialFile, isOpen]);
 
-  // Clean up preview url when modal closes
+  // Clean up preview url and reset form when modal closes
   useEffect(() => {
     if (!isOpen) {
       setFile(null);
@@ -270,6 +273,8 @@ export default function AiScannerModal({
       setIsAnalyzing(false);
       setErrorMsg('');
       setRequiresKey(false);
+      setIsSubmitting(false);
+      setFormData(createEmptyAiFormData());
     }
   }, [isOpen]);
 
@@ -286,6 +291,7 @@ export default function AiScannerModal({
     setPreviewUrl(objectUrl);
     setErrorMsg('');
     setIsAnalyzing(true);
+    setFormData(createEmptyAiFormData());
 
     try {
       let data = null;
@@ -386,6 +392,8 @@ export default function AiScannerModal({
 
   const handleSubmit = (e) => {
     e.preventDefault();
+    if (isSubmitting) return;
+
     const cleanAmt = cleanNumber(formData.amount);
     const cleanMerchant = (formData.merchant || '').trim();
 
@@ -394,14 +402,19 @@ export default function AiScannerModal({
       return;
     }
 
-    onSaveTransaction({
-      ...formData,
-      amount: cleanAmt,
-      merchant: cleanMerchant,
-      date: normalizeDateYMD(formData.date),
-      time: normalizeTimeHM(formData.time) || new Date().toTimeString().slice(0, 5)
-    });
-    onClose();
+    setIsSubmitting(true);
+    try {
+      onSaveTransaction({
+        ...formData,
+        amount: cleanAmt,
+        merchant: cleanMerchant,
+        date: normalizeDateYMD(formData.date),
+        time: normalizeTimeHM(formData.time) || nowHM()
+      });
+      onClose();
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (

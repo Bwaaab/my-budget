@@ -1,25 +1,52 @@
-import React, { useState } from 'react';
-import { X, Smartphone, Copy, Check, QrCode } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, Smartphone, Copy, Check, ShieldAlert } from 'lucide-react';
+import QRCode from 'qrcode';
+import { ensureSheetsToken } from '../sheetsAuth';
 
 export default function QrCodeModal({ isOpen, onClose, networkInfo, googleSheetsUrl, onOpenSettings }) {
   const [copied, setCopied] = useState(false);
-
-  if (!isOpen) return null;
+  const [qrCodeDataUrl, setQrCodeDataUrl] = useState('');
 
   const activeSheetUrl = (googleSheetsUrl || localStorage.getItem('budget_sheets_url') || '').trim();
-  const activeApiKey = (localStorage.getItem('budget_gemini_key') || '').trim();
-  const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+  const token = activeSheetUrl ? ensureSheetsToken() : '';
+
+  const isLocalhost = typeof window !== 'undefined' &&
+    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
   const publicBaseUrl = isLocalhost
     ? 'https://bwaaab.github.io/my-budget/'
-    : `${window.location.origin}${window.location.pathname}`;
+    : (typeof window !== 'undefined' ? `${window.location.origin}${window.location.pathname}` : '');
 
-  const queryParams = new URLSearchParams();
-  if (activeSheetUrl) queryParams.set('sheet', activeSheetUrl);
-  if (activeApiKey && !activeApiKey.includes('...')) queryParams.set('key', activeApiKey);
-  const qs = queryParams.toString();
-  const mobileUrl = qs ? `${publicBaseUrl}?${qs}` : publicBaseUrl;
+  // Security: Never put Gemini API key in QR or URL.
+  // Sheets URL and security token are encoded in the URL hash (#) so they are NEVER sent over HTTP to servers.
+  const hashParams = new URLSearchParams();
+  if (activeSheetUrl) hashParams.set('sheet', activeSheetUrl);
+  if (token) hashParams.set('token', token);
+  const hash = hashParams.toString();
+  const mobileUrl = hash ? `${publicBaseUrl}#${hash}` : publicBaseUrl;
 
-  const qrCodeDataUrl = `https://api.qrserver.com/v1/create-qr-code/?size=256x256&data=${encodeURIComponent(mobileUrl)}`;
+  useEffect(() => {
+    if (!isOpen || !mobileUrl) return;
+    let isMounted = true;
+    QRCode.toDataURL(mobileUrl, {
+      width: 256,
+      margin: 2,
+      color: {
+        dark: '#18181b',
+        light: '#ffffff'
+      }
+    })
+      .then(url => {
+        if (isMounted) setQrCodeDataUrl(url);
+      })
+      .catch(() => {
+        if (isMounted) setQrCodeDataUrl('');
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, [isOpen, mobileUrl]);
+
+  if (!isOpen) return null;
 
   const handleCopy = () => {
     navigator.clipboard.writeText(mobileUrl);
@@ -49,14 +76,20 @@ export default function QrCodeModal({ isOpen, onClose, networkInfo, googleSheets
         </div>
 
         {/* Content */}
-        <div className="p-5 space-y-4 flex flex-col items-center">
-          {/* QR Code Container */}
+        <div className="p-5 space-y-3.5 flex flex-col items-center">
+          {/* QR Code Container (Generated entirely in-browser, no 3rd-party tracking) */}
           <div className="p-2.5 bg-white rounded-xl border border-zinc-200 shadow-xs inline-block">
-            <img
-              src={qrCodeDataUrl}
-              alt="Smartphone Connect QR"
-              className="w-48 h-48 sm:w-52 sm:h-52 rounded-lg object-contain"
-            />
+            {qrCodeDataUrl ? (
+              <img
+                src={qrCodeDataUrl}
+                alt="Smartphone Connect QR"
+                className="w-48 h-48 sm:w-52 sm:h-52 rounded-lg object-contain"
+              />
+            ) : (
+              <div className="w-48 h-48 sm:w-52 sm:h-52 flex items-center justify-center text-xs text-zinc-400">
+                QR 코드 생성 중...
+              </div>
+            )}
           </div>
 
           <p className="text-xs text-zinc-500">
@@ -64,8 +97,14 @@ export default function QrCodeModal({ isOpen, onClose, networkInfo, googleSheets
           </p>
 
           {activeSheetUrl ? (
-            <div className="w-full px-3 py-2 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-[11px] font-medium text-left">
-              🟢 <strong>구글 시트 연동 정보 포함됨</strong>: 이 QR 코드로 접속하면 폰에서도 예산·내역·위시리스트가 즉시 자동 동기화됩니다.
+            <div className="w-full px-3 py-2 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-[11px] font-medium text-left space-y-1">
+              <div>
+                🟢 <strong>보안 연동 토큰 포함됨</strong>: 스마트폰에서 스캔하면 가계부와 구글 시트가 즉시 암호화 동기화됩니다.
+              </div>
+              <div className="flex items-center gap-1 text-[10px] text-emerald-700">
+                <ShieldAlert className="w-3 h-3 flex-shrink-0" />
+                <span>QR과 링크는 비밀번호와 같습니다. 신뢰할 수 있는 본인 기기에서만 스캔하세요.</span>
+              </div>
             </div>
           ) : (
             <div className="w-full px-3 py-2 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-[11px] font-medium text-left flex items-center justify-between gap-2">

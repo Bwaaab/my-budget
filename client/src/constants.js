@@ -75,9 +75,21 @@ export function formatKRW(amount) {
   return num.toLocaleString('ko-KR') + '원';
 }
 
+const pad2 = (n) => String(n).padStart(2, '0');
+
+// 기기 로컬 시간 기준 YYYY-MM-DD 반환 (toISOString()은 UTC 기준이라 KST 오전 0~9시에 어제로 잡히는 문제 해결)
+export function todayYMD(d = new Date()) {
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+// 기기 로컬 시간 기준 HH:mm 반환
+export function nowHM(d = new Date()) {
+  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
 // Normalize any date string (including Google Sheets, "26.10.25", "10/25", "10월 25일") to "YYYY-MM-DD"
 export function normalizeDateYMD(raw, fallbackYear = new Date().getFullYear()) {
-  if (!raw) return new Date().toISOString().slice(0, 10);
+  if (!raw) return todayYMD();
   const str = String(raw).trim();
 
   // 1. "YYYY-MM-DD" or "YYYY.MM.DD" or "YYYY/MM/DD"
@@ -114,7 +126,7 @@ export function normalizeDateYMD(raw, fallbackYear = new Date().getFullYear()) {
     return `${y}-${m}-${d}`;
   }
 
-  return new Date().toISOString().slice(0, 10);
+  return todayYMD();
 }
 
 // Compact date display for cards & badges: "26.10.24"

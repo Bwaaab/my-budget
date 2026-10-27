@@ -10,27 +10,73 @@ import {
   ShieldCheck,
   Table,
   Copy,
-  RefreshCw
+  RefreshCw,
+  ShieldAlert,
+  Trash2,
+  AlertTriangle
 } from 'lucide-react';
 import { formatKRW } from '../constants';
+import {
+  getSheetsToken,
+  ensureSheetsToken,
+  regenerateSheetsToken,
+  buildSheetsGetUrl
+} from '../sheetsAuth';
 
-const GOOGLE_SCRIPT_CODE = `function doGet(e) {
+export function buildGoogleScriptCode(token) {
+  const secret = (token || '').trim();
+  return `// ==========================================
+// 스마트 AI 가계부 구글 시트 연동 스크립트 (v2 보안 인증 강화)
+// ==========================================
+
+var SECRET_TOKEN = '${secret}';
+
+function jsonResponse_(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+function unauthorized_() {
+  return jsonResponse_({ error: 'unauthorized', message: '보안 토큰이 일치하지 않습니다.' });
+}
+
+function checkAuth_(paramToken) {
+  if (!SECRET_TOKEN) return true; // 토큰 미설정 시 하위 호환
+  return paramToken === SECRET_TOKEN;
+}
+
+function doGet(e) {
+  var paramToken = (e && e.parameter && e.parameter.token) || '';
+  if (!checkAuth_(paramToken)) return unauthorized_();
+
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  
+
   // 1. Transactions (가계부 내역)
   var txSheet = ss.getSheetByName('가계부') || ss.getActiveSheet();
   var txValues = txSheet.getDataRange().getValues();
   var transactions = [];
+  var tz = Session.getScriptTimeZone() || 'Asia/Seoul';
+
   if (txValues.length > 1) {
     for (var i = 1; i < txValues.length; i++) {
       var row = txValues[i];
       if (!row[1] && !row[4]) continue;
+
       var dateVal = row[1];
-      var dateStr = (dateVal instanceof Date) ? Utilities.formatDate(dateVal, Session.getScriptTimeZone(), "yyyy-MM-dd") : String(dateVal || '');
+      var dateStr = (dateVal instanceof Date)
+        ? Utilities.formatDate(dateVal, tz, "yyyy-MM-dd")
+        : String(dateVal || '');
+
+      // 시간 셀이 Date 객체로 변환된 경우 1899년 오프셋 문제 방지
+      var timeVal = row[2];
+      var timeStr = (timeVal instanceof Date)
+        ? Utilities.formatDate(timeVal, tz, "HH:mm")
+        : String(timeVal || '');
+
       transactions.push({
         id: row[0] || i,
         date: dateStr,
-        time: String(row[2] || ''),
+        time: timeStr,
         type: row[3] === '수입' ? 'income' : (row[3] === '저축' || row[5] === '저축/투자') ? 'saving' : 'expense',
         amount: Number(row[4]) || 0,
         category: String(row[5] || '기타'),
@@ -42,7 +88,7 @@ const GOOGLE_SCRIPT_CODE = `function doGet(e) {
     }
   }
 
-  // 2. Wishlist (위시리스트 - 살 것)
+  // 2. Wishlist (위시리스트)
   var wishSheet = ss.getSheetByName('위시리스트');
   var wishlist = [];
   if (wishSheet) {
@@ -52,7 +98,10 @@ const GOOGLE_SCRIPT_CODE = `function doGet(e) {
         var w = wishValues[j];
         if (!w[1]) continue;
         var wDateVal = w[8];
-        var wDateStr = (wDateVal instanceof Date) ? Utilities.formatDate(wDateVal, Session.getScriptTimeZone(), "yyyy-MM-dd") : String(wDateVal || '');
+        var wDateStr = (wDateVal instanceof Date)
+          ? Utilities.formatDate(wDateVal, tz, "yyyy-MM-dd")
+          : String(wDateVal || '');
+
         wishlist.push({
           id: w[0] || j,
           title: String(w[1] || ''),
@@ -79,105 +128,134 @@ const GOOGLE_SCRIPT_CODE = `function doGet(e) {
     if (kVal) gemini_api_key = String(kVal);
   }
 
-  return ContentService.createTextOutput(JSON.stringify({
+  return jsonResponse_({
+    version: 2,
     transactions: transactions,
     wishlist: wishlist,
     settings: { monthly_budget: monthly_budget, gemini_api_key: gemini_api_key }
-  })).setMimeType(ContentService.MimeType.JSON);
+  });
 }
 
 function doPost(e) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var payload = JSON.parse(e.postData.contents);
-  var action = payload.action || 'add_transaction';
-
-  // 지출/수입 단건 등록
-  if (action === 'add_transaction') {
-    var txSheet = ss.getSheetByName('가계부') || ss.getActiveSheet();
-    if (txSheet.getName() !== '가계부') txSheet.setName('가계부');
-    if (txSheet.getLastRow() === 0) {
-      txSheet.appendRow(['ID', '일자', '시간', '구분', '금액', '카테고리', '상호/사용처', '결제수단', '메모', '필수/선택']);
-    }
-    var id = payload.id || Date.now();
-    txSheet.appendRow([
-      id,
-      payload.date,
-      payload.time || '',
-      payload.type === 'income' ? '수입' : (payload.type === 'saving' || payload.category === '저축/투자') ? '저축' : '지출',
-      Number(payload.amount) || 0,
-      payload.category || '기타',
-      payload.merchant || '',
-      payload.payment_method || '',
-      payload.memo || '',
-      payload.type === 'expense' ? (payload.necessity === 'want' ? '선택' : '필수') : ''
-    ]);
-    return ContentService.createTextOutput(JSON.stringify({ success: true, id: id })).setMimeType(ContentService.MimeType.JSON);
+  var payload;
+  try {
+    payload = JSON.parse(e.postData.contents);
+  } catch (err) {
+    return jsonResponse_({ error: 'invalid_json' });
   }
 
-  // 지출/수입 전체 동기화 (수정·삭제 반영)
-  if (action === 'sync_transactions') {
-    var allTxSheet = ss.getSheetByName('가계부') || ss.getActiveSheet();
-    if (allTxSheet.getName() !== '가계부') allTxSheet.setName('가계부');
-    allTxSheet.clear();
-    allTxSheet.appendRow(['ID', '일자', '시간', '구분', '금액', '카테고리', '상호/사용처', '결제수단', '메모', '필수/선택']);
-    if (Array.isArray(payload.transactions)) {
-      payload.transactions.forEach(function(t) {
-        allTxSheet.appendRow([
-          t.id || Date.now(),
-          t.date || '',
-          t.time || '',
-          t.type === 'income' ? '수입' : (t.type === 'saving' || t.category === '저축/투자') ? '저축' : '지출',
-          Number(t.amount) || 0,
-          t.category || '기타',
-          t.merchant || '',
-          t.payment_method || '',
-          t.memo || '',
-          t.type === 'expense' ? (t.necessity === 'want' ? '선택' : '필수') : ''
-        ]);
-      });
-    }
-    return ContentService.createTextOutput(JSON.stringify({ success: true })).setMimeType(ContentService.MimeType.JSON);
-  }
+  var paramToken = payload.token || '';
+  if (!checkAuth_(paramToken)) return unauthorized_();
 
-  // 위시리스트 동기화
-  if (action === 'sync_wishlist') {
-    var wishSheet = ss.getSheetByName('위시리스트');
-    if (!wishSheet) wishSheet = ss.insertSheet('위시리스트');
-    wishSheet.clear();
-    wishSheet.appendRow(['ID', '상품명', '예상가격', '카테고리', '우선순위', '상태', '메모', '링크', '등록일']);
-    if (Array.isArray(payload.wishlist)) {
-      payload.wishlist.forEach(function(item) {
-        wishSheet.appendRow([
-          item.id || Date.now(),
-          item.title,
-          Number(item.price) || 0,
-          item.category || '쇼핑',
-          item.priority || 3,
-          item.status || 'pending',
-          item.memo || '',
-          item.link || '',
-          item.createdAt || ''
-        ]);
-      });
-    }
-    return ContentService.createTextOutput(JSON.stringify({ success: true })).setMimeType(ContentService.MimeType.JSON);
-  }
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000); // 동시성 경합 및 중복 쓰기 방지
 
-  // 목표 예산 및 AI API 키 저장
-  if (action === 'update_budget') {
-    var settingsSheet = ss.getSheetByName('설정');
-    if (!settingsSheet) settingsSheet = ss.insertSheet('설정');
-    settingsSheet.getRange(1, 1).setValue('monthly_budget');
-    settingsSheet.getRange(1, 2).setValue(Number(payload.monthly_budget) || 1200000);
-    if (payload.gemini_api_key) {
-      settingsSheet.getRange(2, 1).setValue('gemini_api_key');
-      settingsSheet.getRange(2, 2).setValue(String(payload.gemini_api_key));
-    }
-    return ContentService.createTextOutput(JSON.stringify({ success: true })).setMimeType(ContentService.MimeType.JSON);
-  }
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var action = payload.action || 'add_transaction';
 
-  return ContentService.createTextOutput(JSON.stringify({ success: true })).setMimeType(ContentService.MimeType.JSON);
+    // 지출/수입 단건 등록 (동일 ID 중복 등록 방지)
+    if (action === 'add_transaction') {
+      var txSheet = ss.getSheetByName('가계부') || ss.getActiveSheet();
+      if (txSheet.getName() !== '가계부') txSheet.setName('가계부');
+      if (txSheet.getLastRow() === 0) {
+        txSheet.appendRow(['ID', '일자', '시간', '구분', '금액', '카테고리', '상호/사용처', '결제수단', '메모', '필수/선택']);
+      }
+
+      var id = payload.id || Date.now();
+
+      // 중복 체크: 이미 해당 ID가 첫 번째 열에 있으면 건너뜀 (네트워크 재전송 방어)
+      if (txSheet.getLastRow() > 1) {
+        var idColumnRange = txSheet.getRange(2, 1, txSheet.getLastRow() - 1, 1);
+        var found = idColumnRange.createTextFinder(String(id)).matchEntireCell(true).findNext();
+        if (found) {
+          return jsonResponse_({ success: true, id: id, duplicate: true });
+        }
+      }
+
+      txSheet.appendRow([
+        id,
+        payload.date || '',
+        payload.time || '',
+        payload.type === 'income' ? '수입' : (payload.type === 'saving' || payload.category === '저축/투자') ? '저축' : '지출',
+        Number(payload.amount) || 0,
+        payload.category || '기타',
+        payload.merchant || '',
+        payload.payment_method || '',
+        payload.memo || '',
+        payload.type === 'expense' ? (payload.necessity === 'want' ? '선택' : '필수') : ''
+      ]);
+      return jsonResponse_({ success: true, id: id });
+    }
+
+    // 지출/수입 전체 동기화
+    if (action === 'sync_transactions') {
+      var allTxSheet = ss.getSheetByName('가계부') || ss.getActiveSheet();
+      if (allTxSheet.getName() !== '가계부') allTxSheet.setName('가계부');
+      allTxSheet.clear();
+      allTxSheet.appendRow(['ID', '일자', '시간', '구분', '금액', '카테고리', '상호/사용처', '결제수단', '메모', '필수/선택']);
+      if (Array.isArray(payload.transactions)) {
+        payload.transactions.forEach(function(t) {
+          allTxSheet.appendRow([
+            t.id || Date.now(),
+            t.date || '',
+            t.time || '',
+            t.type === 'income' ? '수입' : (t.type === 'saving' || t.category === '저축/투자') ? '저축' : '지출',
+            Number(t.amount) || 0,
+            t.category || '기타',
+            t.merchant || '',
+            t.payment_method || '',
+            t.memo || '',
+            t.type === 'expense' ? (t.necessity === 'want' ? '선택' : '필수') : ''
+          ]);
+        });
+      }
+      return jsonResponse_({ success: true });
+    }
+
+    // 위시리스트 동기화
+    if (action === 'sync_wishlist') {
+      var wishSheet = ss.getSheetByName('위시리스트');
+      if (!wishSheet) wishSheet = ss.insertSheet('위시리스트');
+      wishSheet.clear();
+      wishSheet.appendRow(['ID', '상품명', '예상가격', '카테고리', '우선순위', '상태', '메모', '링크', '등록일']);
+      if (Array.isArray(payload.wishlist)) {
+        payload.wishlist.forEach(function(item) {
+          wishSheet.appendRow([
+            item.id || Date.now(),
+            item.title,
+            Number(item.price) || 0,
+            item.category || '쇼핑',
+            item.priority || 3,
+            item.status || 'pending',
+            item.memo || '',
+            item.link || '',
+            item.createdAt || ''
+          ]);
+        });
+      }
+      return jsonResponse_({ success: true });
+    }
+
+    // 목표 예산 및 AI API 키 저장
+    if (action === 'update_budget') {
+      var settingsSheet = ss.getSheetByName('설정');
+      if (!settingsSheet) settingsSheet = ss.insertSheet('설정');
+      settingsSheet.getRange(1, 1).setValue('monthly_budget');
+      settingsSheet.getRange(1, 2).setValue(Number(payload.monthly_budget) || 1200000);
+      if (payload.gemini_api_key) {
+        settingsSheet.getRange(2, 1).setValue('gemini_api_key');
+        settingsSheet.getRange(2, 2).setValue(String(payload.gemini_api_key));
+      }
+      return jsonResponse_({ success: true });
+    }
+
+    return jsonResponse_({ success: true });
+  } finally {
+    lock.releaseLock();
+  }
 }`;
+}
 
 export default function SettingsModal({
   isOpen,
@@ -190,6 +268,7 @@ export default function SettingsModal({
   const [apiKey, setApiKey] = useState('');
   const [budget, setBudget] = useState('1200000');
   const [googleSheetsUrl, setGoogleSheetsUrl] = useState('');
+  const [token, setToken] = useState('');
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
   const [showCodeBox, setShowCodeBox] = useState(false);
@@ -197,21 +276,39 @@ export default function SettingsModal({
   const [testResult, setTestResult] = useState('');
   const [isTesting, setIsTesting] = useState(false);
 
-  // Only populate fields when modal opens so background syncs don't reset user's typing
+  // Cleanup helper states
+  const [showCleanup, setShowCleanup] = useState(false);
+  const [suspiciousRows, setSuspiciousRows] = useState([]);
+  const [selectedCleanupIds, setSelectedCleanupIds] = useState(new Set());
+  const [cleanupMessage, setCleanupMessage] = useState('');
+
   useEffect(() => {
     if (isOpen) {
       const savedKey = settings?.gemini_api_key || localStorage.getItem('budget_gemini_key') || '';
       const savedBudget = Number(localStorage.getItem('budget_monthly_target')) || settings?.monthly_budget || 1200000;
       const savedUrl = localStorage.getItem('budget_sheets_url') || settings?.google_sheets_url || '';
+      const savedToken = ensureSheetsToken();
+
       setApiKey(savedKey);
       setBudget(String(savedBudget));
       setGoogleSheetsUrl(savedUrl);
+      setToken(savedToken);
       setTestResult('');
+      setShowCleanup(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen]);
+  }, [isOpen, settings]);
 
   if (!isOpen) return null;
+
+  const currentScriptCode = buildGoogleScriptCode(token);
+
+  const handleRegenerateToken = () => {
+    if (confirm('⚠️ 보안 토큰을 새로 발급하면 기존 QR 코드와 구글 시트 연결이 끊어집니다. 새 스크립트를 시트에 다시 배포해야 합니다. 계속할까요?')) {
+      const newToken = regenerateSheetsToken();
+      setToken(newToken);
+      setTestResult('⚠️ 새 토큰이 발급되었습니다. 아래 스크립트를 복사하여 구글 시트 Apps Script에 다시 배포해 주세요.');
+    }
+  };
 
   const handleSave = async (e) => {
     if (e) e.preventDefault();
@@ -229,7 +326,6 @@ export default function SettingsModal({
     setTimeout(() => setSavedSuccess(false), 2000);
   };
 
-  // Close immediately (0ms) and only save in background if user actually modified a field
   const handleCloseWithSave = () => {
     const cleanUrl = googleSheetsUrl.trim();
     const isValidUrl = !cleanUrl || (!cleanUrl.includes('/macros/library/') && cleanUrl.startsWith('http'));
@@ -241,10 +337,8 @@ export default function SettingsModal({
     const nextBudget = Number(budget) || 1200000;
     const nextUrl = isValidUrl ? cleanUrl : prevUrl;
 
-    // 1. Close modal immediately so X button feels instant
     onClose();
 
-    // 2. If anything changed, persist in background
     if (nextKey !== prevKey || nextBudget !== prevBudget || nextUrl !== prevUrl) {
       onSaveSettings({
         gemini_api_key: nextKey,
@@ -261,53 +355,141 @@ export default function SettingsModal({
       return;
     }
     if (cleanUrl.includes('/macros/library/')) {
-      setTestResult('🔴 라이브러리 주소(/library/)가 입력되었습니다. Apps Script 우측 상단 [배포] > [새 배포] > 유형 [웹 앱]에서 끝이 /exec로 끝나는 URL을 복사해 주세요.');
+      setTestResult('🔴 라이브러리 주소(/library/)입니다. [배포] > [새 배포] > [웹 앱]에서 끝이 /exec로 끝나는 URL을 복사해 주세요.');
       return;
     }
 
     setIsTesting(true);
-    setTestResult('구글 시트와 통신 및 동기화 중...');
+    setTestResult('구글 시트와 통신 및 보안 인증 확인 중...');
 
     try {
-      // Save URL first
       localStorage.setItem('budget_sheets_url', cleanUrl);
       if (apiKey.trim()) {
         localStorage.setItem('budget_gemini_key', apiKey.trim());
       }
 
-      // 1. Verify GET connection & pull existing settings/API key/budget from Google Sheets
-      const res = await fetch(`${cleanUrl}${cleanUrl.includes('?') ? '&' : '?'}_t=${Date.now()}`);
+      const testUrl = buildSheetsGetUrl(cleanUrl, token);
+      const res = await fetch(testUrl);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      await res.json();
+      const data = await res.json();
+
+      if (data && data.error === 'unauthorized') {
+        setTestResult('🔴 보안 인증 실패: 시트에 등록된 스크립트의 토큰과 일치하지 않습니다. 아래 스크립트를 복사하여 새 버전으로 배포해 주세요.');
+        return;
+      }
 
       if (onSyncGoogleSheets) {
         await onSyncGoogleSheets(cleanUrl, Number(budget) !== 1200000 ? Number(budget) : null);
       }
 
-      // 2. Reflect synced values in modal inputs & ensure local settings are saved
-      const syncedKey = apiKey.trim() || localStorage.getItem('budget_gemini_key') || '';
-      const syncedBudget = Number(localStorage.getItem('budget_monthly_target')) || Number(budget) || 1200000;
-      if (syncedKey) setApiKey(syncedKey);
-      if (syncedBudget) setBudget(String(syncedBudget));
+      const isV2 = data && data.version === 2;
+      if (isV2) {
+        setTestResult('🟢 연결 성공! 보안 토큰 인증(v2)이 활성화되어 안전하게 동기화됩니다.');
+      } else {
+        setTestResult('🟡 연결 성공: 단, 구버전 스크립트가 실행 중입니다. 최신 보안 스크립트를 복사하여 배포하시면 중복 방지와 토큰 암호화가 적용됩니다.');
+      }
 
       await onSaveSettings({
-        gemini_api_key: syncedKey,
-        monthly_budget: syncedBudget,
+        gemini_api_key: apiKey.trim(),
+        monthly_budget: Number(budget) || 1200000,
         google_sheets_url: cleanUrl
       });
-
-      setTestResult('🟢 연결 성공! 지출 내역·위시리스트·목표 예산·AI 키가 모두 동기화되었습니다.');
     } catch (err) {
-      setTestResult(`🔴 연결 실패: 구글 시트 웹앱 URL(/exec)과 액세스 권한(모든 사용자)을 확인해 주세요. (${err.message})`);
+      setTestResult(`🔴 연결 실패: 구글 시트 웹앱 URL(/exec)과 권한(모든 사용자)을 확인해 주세요. (${err.message})`);
     } finally {
       setIsTesting(false);
     }
   };
 
   const handleCopyCode = () => {
-    navigator.clipboard.writeText(GOOGLE_SCRIPT_CODE);
+    navigator.clipboard.writeText(currentScriptCode);
     setCopiedCode(true);
     setTimeout(() => setCopiedCode(false), 2000);
+  };
+
+  // Scan current local transactions for suspicious/failed AI entries or duplicates
+  const handleScanSuspicious = () => {
+    let list = [];
+    try {
+      const saved = localStorage.getItem('budget_local_transactions');
+      list = saved ? JSON.parse(saved) : [];
+    } catch (_) {}
+
+    const suspicious = [];
+    const seenMap = new Map();
+
+    list.forEach(item => {
+      let isBad = false;
+      let reason = '';
+
+      const merchant = String(item.merchant || '').trim();
+      const amount = Number(item.amount) || 0;
+
+      // 1. API key missing dummy text
+      if (merchant.includes('API 키 등록 필요') || merchant.includes('가맹점/상호 (API')) {
+        isBad = true;
+        reason = 'API 키 미등록 예시 데이터';
+      } else if (merchant === '미상' && amount === 0) {
+        isBad = true;
+        reason = '인식 실패 (상호 미상 & 0원)';
+      } else if (amount <= 0) {
+        isBad = true;
+        reason = '0원 이하 내역';
+      }
+
+      // 2. Duplicate detection (same date, merchant, amount, type)
+      const sig = `${item.date}_${item.type}_${merchant}_${amount}`;
+      if (seenMap.has(sig)) {
+        isBad = true;
+        reason = reason ? `${reason} + 중복 내역` : '동일 내역 중복 등록';
+      } else {
+        seenMap.set(sig, item.id);
+      }
+
+      if (isBad) {
+        suspicious.push({ ...item, reason });
+      }
+    });
+
+    setSuspiciousRows(suspicious);
+    setSelectedCleanupIds(new Set(suspicious.map(s => s.id)));
+    setShowCleanup(true);
+    setCleanupMessage(suspicious.length === 0 ? '정리가 필요한 중복·실패 내역이 없습니다.' : `총 ${suspicious.length}건의 의심 내역이 감지되었습니다.`);
+  };
+
+  const handleExecuteCleanup = async () => {
+    if (selectedCleanupIds.size === 0) return;
+    if (!confirm(`선택한 ${selectedCleanupIds.size}건의 내역을 영구 삭제하시겠습니까?`)) return;
+
+    let list = [];
+    try {
+      const saved = localStorage.getItem('budget_local_transactions');
+      list = saved ? JSON.parse(saved) : [];
+    } catch (_) {}
+
+    const remaining = list.filter(item => !selectedCleanupIds.has(item.id));
+    localStorage.setItem('budget_local_transactions', JSON.stringify(remaining));
+
+    // Push full sync to Google Sheets
+    const sheetsUrl = (googleSheetsUrl || localStorage.getItem('budget_sheets_url') || '').trim();
+    if (sheetsUrl) {
+      try {
+        await fetch(sheetsUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({
+            action: 'sync_transactions',
+            transactions: remaining,
+            token
+          })
+        });
+      } catch (_) {}
+    }
+
+    setCleanupMessage(`🎉 ${selectedCleanupIds.size}건 삭제 완료! 가계부와 구글 시트가 깨끗하게 정리되었습니다.`);
+    setSuspiciousRows([]);
+    setSelectedCleanupIds(new Set());
+    if (onRefreshData) onRefreshData();
   };
 
   const handleExportCsv = () => {
@@ -371,7 +553,7 @@ export default function SettingsModal({
               <div className="flex items-center gap-2">
                 <Table className="w-4 h-4 text-zinc-700" />
                 <h3 className="text-xs sm:text-sm font-bold text-zinc-900">
-                  📊 구글 스프레드시트 연동 (지출·위시리스트·예산 통합)
+                  📊 구글 스프레드시트 연동
                 </h3>
               </div>
               <a
@@ -380,12 +562,12 @@ export default function SettingsModal({
                 rel="noreferrer"
                 className="text-xs text-zinc-600 hover:text-zinc-900 underline font-medium"
               >
-                새 구글 시트 만들기 ↗
+                새 시트 만들기 ↗
               </a>
             </div>
 
             <p className="text-xs text-zinc-500 leading-relaxed">
-              구글 시트 URL을 등록하면 <strong>지출 내역, 목표 예산, 위시리스트까지 전부 구글 시트에 안전 저장</strong>되며 폰과 PC가 자동 동기화됩니다. (100% 무료)
+              구글 시트 URL을 등록하면 <strong>지출 내역, 목표 예산, 위시리스트</strong>가 구글 시트에 안전 보관되며 폰과 자동 동기화됩니다.
             </p>
 
             <div>
@@ -400,14 +582,7 @@ export default function SettingsModal({
                   onChange={(e) => {
                     const val = e.target.value;
                     setGoogleSheetsUrl(val);
-                    if (val.includes('/macros/library/')) {
-                      setTestResult('🔴 라이브러리 주소(/library/)입니다! [배포] > [새 배포]에서 끝이 /exec로 끝나는 웹 앱 URL을 복사해 주세요.');
-                    } else {
-                      setTestResult('');
-                      if (val.trim().startsWith('https://script.google.com/macros/s/')) {
-                        localStorage.setItem('budget_sheets_url', val.trim());
-                      }
-                    }
+                    setTestResult('');
                   }}
                   className="flex-1 text-xs px-3 py-2 bg-white border border-zinc-200 rounded-xl focus:ring-1 focus:ring-zinc-600 outline-none"
                 />
@@ -418,36 +593,50 @@ export default function SettingsModal({
                   className="px-3 py-2 bg-zinc-900 hover:bg-zinc-800 disabled:opacity-50 text-white rounded-xl text-xs font-semibold flex items-center gap-1 transition whitespace-nowrap flex-shrink-0"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 flex-shrink-0 ${isTesting ? 'animate-spin' : ''}`} />
-                  <span>연동 & 저장</span>
+                  <span>연동 & 검증</span>
                 </button>
               </div>
               {testResult && (
-                <div className={`mt-2 p-2 rounded-lg text-xs font-medium ${
-                  testResult.startsWith('🟢') ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-rose-50 text-rose-800 border border-rose-200'
+                <div className={`mt-2 p-2 rounded-lg text-xs font-medium leading-relaxed ${
+                  testResult.startsWith('🟢')
+                    ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                    : testResult.startsWith('🟡')
+                    ? 'bg-amber-50 text-amber-800 border border-amber-200'
+                    : 'bg-rose-50 text-rose-800 border border-rose-200'
                 }`}>
                   {testResult}
                 </div>
               )}
             </div>
 
-            {/* Quick 1-minute setup guide toggle */}
-            <div className="pt-1">
+            {/* Token Info & Code Toggle */}
+            <div className="pt-1 space-y-2">
+              <div className="flex items-center justify-between text-[11px] text-zinc-500">
+                <span>보안 인증 토큰: <code className="font-mono bg-zinc-200 px-1 rounded text-zinc-800">{token ? `${token.slice(0, 6)}...${token.slice(-4)}` : '없음'}</code></span>
+                <button
+                  type="button"
+                  onClick={handleRegenerateToken}
+                  className="text-zinc-600 hover:text-zinc-900 underline font-medium"
+                >
+                  토큰 재발급
+                </button>
+              </div>
+
               <button
                 type="button"
                 onClick={() => setShowCodeBox(!showCodeBox)}
                 className="text-xs font-semibold text-zinc-600 hover:text-zinc-900 underline flex items-center gap-1"
               >
-                <span>{showCodeBox ? '▲ 스크립트 코드 & 연동 방법 닫기' : '▼ 1분 구글 시트 연동 스크립트 코드 복사하기'}</span>
+                <span>{showCodeBox ? '▲ 스크립트 코드 & 연동 방법 닫기' : '▼ 1분 구글 시트 보안 스크립트 코드 복사하기'}</span>
               </button>
 
               {showCodeBox && (
-                <div className="mt-2.5 p-3 bg-white rounded-xl border border-zinc-200 text-xs text-zinc-700 space-y-2">
+                <div className="mt-2 p-3 bg-white rounded-xl border border-zinc-200 text-xs text-zinc-700 space-y-2">
                   <ol className="list-decimal list-inside space-y-1 text-zinc-600 leading-relaxed text-[11px]">
-                    <li><a href="https://sheets.new" target="_blank" rel="noreferrer" className="text-zinc-900 underline font-bold">새 구글 시트</a>를 엽니다.</li>
-                    <li>상단 메뉴에서 <strong>확장 프로그램 &gt; Apps Script</strong>를 클릭합니다.</li>
-                    <li>기존 내용을 지우고 아래 스크립트 코드를 붙여넣은 뒤 <strong>저장(💾)</strong>합니다.</li>
-                    <li>우측 상단 <strong>배포 &gt; 새 배포</strong> 클릭 ➔ 유형 선택 <strong>'웹 앱'</strong> ➔ 액세스 권한 <strong>'모든 사용자(Anyone)'</strong> 선택 ➔ <strong>배포</strong> 클릭.</li>
-                    <li>발급된 <strong>웹 앱 URL</strong>을 복사하여 위 칸에 붙여넣으면 끝!</li>
+                    <li>구글 시트 상단 메뉴 <strong>확장 프로그램 &gt; Apps Script</strong>를 엽니다.</li>
+                    <li>기존 코드를 지우고 아래 <strong>보안 토큰이 포함된 코드</strong>를 붙여넣은 뒤 저장(💾)합니다.</li>
+                    <li>우측 상단 <strong>배포 &gt; 새 배포</strong>(또는 배포 관리 &gt; 새 버전) ➔ 유형: <strong>웹 앱</strong> ➔ 액세스 권한: <strong>모든 사용자(Anyone)</strong> ➔ 배포 클릭.</li>
+                    <li>발급된 <strong>웹 앱 URL(/exec)</strong>을 복사하여 위 칸에 넣고 [연동 & 검증]을 누르면 끝!</li>
                   </ol>
 
                   <div className="pt-2">
@@ -463,7 +652,7 @@ export default function SettingsModal({
                       </button>
                     </div>
                     <pre className="p-2 bg-zinc-900 text-zinc-200 rounded-lg text-[10px] overflow-x-auto max-h-36 font-mono">
-                      {GOOGLE_SCRIPT_CODE}
+                      {currentScriptCode}
                     </pre>
                   </div>
                 </div>
@@ -476,7 +665,7 @@ export default function SettingsModal({
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Key className="w-4 h-4 text-zinc-700" />
-                <h3 className="text-xs sm:text-sm font-bold text-zinc-900">Gemini 3.8 AI 설정</h3>
+                <h3 className="text-xs sm:text-sm font-bold text-zinc-900">Gemini AI 설정</h3>
               </div>
               <a
                 href="https://aistudio.google.com/app/apikey"
@@ -498,7 +687,7 @@ export default function SettingsModal({
             {settings?.hasApiKey && (
               <div className="text-[11px] text-zinc-500 flex items-center gap-1">
                 <ShieldCheck className="w-3.5 h-3.5 text-zinc-700" />
-                <span>API 키 등록 완료</span>
+                <span>API 키 등록 완료 (클라이언트에만 안전 보관)</span>
               </div>
             )}
           </div>
@@ -515,36 +704,12 @@ export default function SettingsModal({
               <input
                 type="number"
                 value={budget}
-                onChange={(e) => {
-                  setBudget(e.target.value);
-                  if (Number(e.target.value) > 0) {
-                    localStorage.setItem('budget_monthly_target', String(Number(e.target.value)));
-                  }
-                }}
+                onChange={(e) => setBudget(e.target.value)}
                 className="w-full text-sm font-bold px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl focus:bg-white focus:ring-1 focus:ring-zinc-600 outline-none"
               />
               <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-zinc-400">
                 {formatKRW(budget)}
               </span>
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {[300000, 400000, 500000, 800000, 1000000, 1500000].map((amt) => (
-                <button
-                  key={amt}
-                  type="button"
-                  onClick={() => {
-                    setBudget(String(amt));
-                    localStorage.setItem('budget_monthly_target', String(amt));
-                  }}
-                  className={`px-2.5 py-1 text-[11px] rounded-lg font-medium transition ${
-                    Number(budget) === amt
-                      ? 'bg-zinc-900 text-white font-bold'
-                      : 'bg-zinc-100 hover:bg-zinc-200 text-zinc-700'
-                  }`}
-                >
-                  {amt / 10000}만
-                </button>
-              ))}
             </div>
           </div>
 
@@ -554,13 +719,82 @@ export default function SettingsModal({
               onClick={handleSave}
               className="w-full py-2.5 bg-zinc-900 hover:bg-zinc-800 text-white font-bold text-xs rounded-xl shadow-xs transition"
             >
-              {savedSuccess ? '✅ 설정 및 구글 시트 저장 완료!' : '설정 저장하기'}
+              {savedSuccess ? '✅ 설정 저장 완료!' : '설정 저장하기'}
             </button>
           </div>
 
           <hr className="border-zinc-100" />
 
-          {/* 4. Backup & Export Section */}
+          {/* 4. Cleanup Suspicious AI / Duplicate Records */}
+          <div className="p-3.5 bg-amber-50/60 border border-amber-200/80 rounded-2xl space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-amber-700 flex-shrink-0" />
+                <h3 className="text-xs sm:text-sm font-bold text-zinc-900">
+                  🧹 중복·실패 내역 자동 정리
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={handleScanSuspicious}
+                className="text-xs px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-lg transition"
+              >
+                의심 내역 검사
+              </button>
+            </div>
+            <p className="text-[11px] text-zinc-500 leading-relaxed">
+              AI 인식 실패로 잘못 들어간 가짜 데이터나 통신 재시도로 생긴 중복 행을 찾아 깨끗이 삭제합니다.
+            </p>
+
+            {cleanupMessage && (
+              <p className="text-xs font-medium text-amber-900 pt-1">{cleanupMessage}</p>
+            )}
+
+            {showCleanup && suspiciousRows.length > 0 && (
+              <div className="mt-2 space-y-2">
+                <div className="max-h-48 overflow-y-auto space-y-1 bg-white p-2 rounded-xl border border-amber-200">
+                  {suspiciousRows.map(row => (
+                    <label key={row.id} className="flex items-center gap-2 text-xs p-1.5 hover:bg-zinc-50 rounded cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={selectedCleanupIds.has(row.id)}
+                        onChange={(e) => {
+                          const next = new Set(selectedCleanupIds);
+                          if (e.target.checked) next.add(row.id);
+                          else next.delete(row.id);
+                          setSelectedCleanupIds(next);
+                        }}
+                        className="rounded text-amber-600"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <span className="font-semibold text-zinc-800">{row.merchant || '상호없음'}</span>
+                        <span className="text-zinc-500 ml-1">({formatKRW(row.amount)})</span>
+                        <span className="text-zinc-400 text-[10px] ml-1">{row.date}</span>
+                        <div className="text-[10px] text-rose-600 font-medium">{row.reason}</div>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+
+                <div className="flex justify-between items-center pt-1">
+                  <span className="text-[11px] text-zinc-500">{selectedCleanupIds.size}개 선택됨</span>
+                  <button
+                    type="button"
+                    onClick={handleExecuteCleanup}
+                    disabled={selectedCleanupIds.size === 0}
+                    className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white font-bold text-xs rounded-lg transition flex items-center gap-1"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>선택 삭제 실행</span>
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <hr className="border-zinc-100" />
+
+          {/* 5. Backup & Export Section */}
           <div className="space-y-2.5">
             <h3 className="text-xs sm:text-sm font-bold text-zinc-900">데이터 백업 및 엑셀 다운로드</h3>
             <div className="grid grid-cols-2 gap-2">

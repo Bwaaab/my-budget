@@ -12,7 +12,7 @@ import {
   Edit2,
   RefreshCw
 } from 'lucide-react';
-import { formatKRW, formatShortDate, normalizeDateYMD } from '../constants';
+import { formatKRW, formatShortDate, normalizeDateYMD, todayYMD, nowHM } from '../constants';
 
 export default function Wishlist({
   items: externalItems,
@@ -124,7 +124,7 @@ export default function Wishlist({
         link: formData.link.trim(),
         memo: formData.memo.trim(),
         status: 'pending',
-        createdAt: new Date().toISOString().slice(0, 10)
+        createdAt: todayYMD()
       };
       updateItems([newItem, ...items]);
     }
@@ -156,8 +156,8 @@ export default function Wishlist({
           amount: item.price,
           merchant: item.title,
           category: item.category || '쇼핑',
-          date: new Date().toISOString().slice(0, 10),
-          time: new Date().toTimeString().slice(0, 5),
+          date: todayYMD(),
+          time: nowHM(),
           payment_method: '카드',
           memo: `[위시리스트 구매] ${item.memo || ''}`
         });

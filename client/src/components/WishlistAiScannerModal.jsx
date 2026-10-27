@@ -11,7 +11,7 @@ import {
   RotateCcw,
   Star
 } from 'lucide-react';
-import { formatKRW } from '../constants';
+import { formatKRW, todayYMD, nowHM } from '../constants';
 
 const WISHLIST_CATEGORIES = [
   '전자기기',
@@ -398,7 +398,7 @@ export default function WishlistAiScannerModal({
       link: formData.link.trim(),
       memo: formData.memo.trim(),
       status: 'pending',
-      createdAt: new Date().toISOString().slice(0, 10)
+      createdAt: todayYMD()
     });
     onClose();
   };

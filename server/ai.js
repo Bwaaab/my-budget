@@ -1,5 +1,17 @@
 const fs = require('fs');
 
+function getTodayYMD() {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function getNowHM() {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 /**
  * Call Gemini Vision to extract household budget data from an image buffer or base64.
  * @param {Buffer} imageBuffer
@@ -8,22 +20,12 @@ const fs = require('fs');
  */
 async function recognizeReceiptOrCapture(imageBuffer, mimeType = 'image/jpeg', apiKey = '') {
   if (!apiKey) {
-    // If no API key is provided, return a friendly mock result or guidance
+    // If no API key is provided, return guidance without fake pre-filled values
     return {
       success: false,
       requiresKey: true,
       message: 'Gemini API 키가 등록되지 않았습니다. 우측 상단 ⚙️ 설정에서 무료 Gemini API 키를 입력하시면 실시간 영수증/캡처 AI 자동 인식이 즉시 활성화됩니다!',
-      extracted: {
-        type: 'expense',
-        amount: 12000,
-        merchant: '가맹점/상호 (API 키 등록 필요)',
-        date: new Date().toISOString().slice(0, 10),
-        time: '12:00',
-        category: '식비',
-        payment_method: '카드',
-        memo: 'Gemini API 키 설정 후 캡처하면 정확한 금액과 상호가 자동으로 채워집니다.',
-        items: []
-      }
+      extracted: null
     };
   }
 
@@ -119,8 +121,8 @@ async function recognizeReceiptOrCapture(imageBuffer, mimeType = 'image/jpeg', a
           necessity: isSaving ? 'need' : (parsed.necessity === 'want' ? 'want' : 'need'),
           amount: typeof parsed.amount === 'number' ? Math.abs(Math.round(parsed.amount)) : (Number(String(parsed.amount || '').replace(/[^0-9]/g, '')) || 0),
           merchant: parsed.merchant || '미상',
-          date: parsed.date || new Date().toISOString().slice(0, 10),
-          time: parsed.time || '12:00',
+          date: parsed.date || getTodayYMD(),
+          time: parsed.time || getNowHM(),
           category: isSaving ? '저축/투자' : parsed.category || '기타',
           payment_method: parsed.payment_method || '카드',
           memo: parsed.memo || '',
