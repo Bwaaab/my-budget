@@ -761,14 +761,14 @@ export default function App() {
     const sheetsUrl = (settings?.google_sheets_url || localStorage.getItem('budget_sheets_url') || '').trim();
     if (sheetsUrl) {
       if (isUpdate) {
-        postToGoogleSheets(sheetsUrl, { action: 'sync_transactions', transactions: list });
+        postToGoogleSheets(sheetsUrl, { action: 'update_transaction', ...txWithId });
       } else {
         postToGoogleSheets(sheetsUrl, { action: 'add_transaction', ...txWithId });
       }
     }
   };
 
-  // Delete Transaction
+  // Delete Transaction (Atomic row-level delete, never clear() the entire sheet)
   const handleDeleteTransaction = async (id) => {
     if (!confirm('이 내역을 삭제하시겠습니까?')) return;
     try {
@@ -792,7 +792,7 @@ export default function App() {
 
     const sheetsUrl = (settings?.google_sheets_url || localStorage.getItem('budget_sheets_url') || '').trim();
     if (sheetsUrl) {
-      await postToGoogleSheets(sheetsUrl, { action: 'sync_transactions', transactions: list });
+      await postToGoogleSheets(sheetsUrl, { action: 'delete_transaction', id });
     }
   };
 

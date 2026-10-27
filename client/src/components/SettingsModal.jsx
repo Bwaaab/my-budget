@@ -188,6 +188,67 @@ function doPost(e) {
       return jsonResponse_({ success: true, id: id });
     }
 
+    // 지출/수입 단건 삭제 (시트 전체를 지우지 않고 해당 ID 행만 정확히 제거)
+    if (action === 'delete_transaction') {
+      var txSheet = ss.getSheetByName('가계부') || ss.getActiveSheet();
+      var idToDelete = String(payload.id);
+      if (txSheet.getLastRow() > 1) {
+        var idRange = txSheet.getRange(2, 1, txSheet.getLastRow() - 1, 1);
+        var found = idRange.createTextFinder(idToDelete).matchEntireCell(true).findNext();
+        if (found) {
+          txSheet.deleteRow(found.getRow());
+          return jsonResponse_({ success: true, deletedId: idToDelete });
+        }
+      }
+      return jsonResponse_({ success: true, notFound: true });
+    }
+
+    // 지출/수입 다중 행 삭제 (중복·실패 내역 일괄 정리 전용)
+    if (action === 'delete_multiple_transactions') {
+      var txSheet = ss.getSheetByName('가계부') || ss.getActiveSheet();
+      var idsToDelete = (payload.ids || []).map(String);
+      var deletedCount = 0;
+      if (txSheet.getLastRow() > 1 && idsToDelete.length > 0) {
+        // 행 번호 밀림 방지를 위해 아래쪽(큰 행 번호)부터 위로 탐색하며 삭제
+        var lastRow = txSheet.getLastRow();
+        var idValues = txSheet.getRange(2, 1, lastRow - 1, 1).getValues();
+        for (var r = idValues.length - 1; r >= 0; r--) {
+          var rowId = String(idValues[r][0]);
+          if (idsToDelete.indexOf(rowId) !== -1) {
+            txSheet.deleteRow(r + 2);
+            deletedCount++;
+          }
+        }
+      }
+      return jsonResponse_({ success: true, deletedCount: deletedCount });
+    }
+
+    // 지출/수입 단건 수정 (해당 ID 행을 찾아 해당 행의 셀 값만 업데이트)
+    if (action === 'update_transaction') {
+      var txSheet = ss.getSheetByName('가계부') || ss.getActiveSheet();
+      var idToUpdate = String(payload.id);
+      if (txSheet.getLastRow() > 1) {
+        var idRange = txSheet.getRange(2, 1, txSheet.getLastRow() - 1, 1);
+        var found = idRange.createTextFinder(idToUpdate).matchEntireCell(true).findNext();
+        if (found) {
+          var targetRow = found.getRow();
+          txSheet.getRange(targetRow, 2, 1, 9).setValues([[
+            payload.date || '',
+            payload.time || '',
+            payload.type === 'income' ? '수입' : (payload.type === 'saving' || payload.category === '저축/투자') ? '저축' : '지출',
+            Number(payload.amount) || 0,
+            payload.category || '기타',
+            payload.merchant || '',
+            payload.payment_method || '',
+            payload.memo || '',
+            payload.type === 'expense' ? (payload.necessity === 'want' ? '선택' : '필수') : ''
+          ]]);
+          return jsonResponse_({ success: true, updatedId: idToUpdate });
+        }
+      }
+      return jsonResponse_({ success: true, notFound: true });
+    }
+
     // 지출/수입 전체 동기화
     if (action === 'sync_transactions') {
       var allTxSheet = ss.getSheetByName('가계부') || ss.getActiveSheet();
@@ -407,7 +468,7 @@ export default function SettingsModal({
     setTimeout(() => setCopiedCode(false), 2000);
   };
 
-  // Scan current local transactions for suspicious/failed AI entries or duplicates
+  // Scan current local transactions for suspicious/failed AI entries, past-year errors, or date-mismatched duplicates
   const handleScanSuspicious = () => {
     let list = [];
     try {
@@ -416,17 +477,17 @@ export default function SettingsModal({
     } catch (_) {}
 
     const suspicious = [];
-    const seenMap = new Map();
+    const suspiciousIdSet = new Set();
+    const currentYear = new Date().getFullYear();
 
+    // 1. Check obvious invalid / dummy data
     list.forEach(item => {
+      const merchant = String(item.merchant || '').trim();
+      const amount = Number(item.amount) || 0;
       let isBad = false;
       let reason = '';
 
-      const merchant = String(item.merchant || '').trim();
-      const amount = Number(item.amount) || 0;
-
-      // 1. API key missing dummy text
-      if (merchant.includes('API 키 등록 필요') || merchant.includes('가맹점/상호 (API')) {
+      if (merchant.includes('API 키 등록 필요') || merchant.includes('가맹점/상호')) {
         isBad = true;
         reason = 'API 키 미등록 예시 데이터';
       } else if (merchant === '미상' && amount === 0) {
@@ -437,29 +498,100 @@ export default function SettingsModal({
         reason = '0원 이하 내역';
       }
 
-      // 2. Duplicate detection (same date, merchant, amount, type)
-      const sig = `${item.date}_${item.type}_${merchant}_${amount}`;
-      if (seenMap.has(sig)) {
-        isBad = true;
-        reason = reason ? `${reason} + 중복 내역` : '동일 내역 중복 등록';
-      } else {
-        seenMap.set(sig, item.id);
-      }
-
-      if (isBad) {
+      if (isBad && !suspiciousIdSet.has(item.id)) {
+        suspiciousIdSet.add(item.id);
         suspicious.push({ ...item, reason });
+      }
+    });
+
+    // 2. Exact Duplicates (Same date, type, clean merchant, amount)
+    const exactMap = new Map();
+    list.forEach(item => {
+      if (suspiciousIdSet.has(item.id)) return;
+      const cleanMerchant = String(item.merchant || '').replace(/\s+/g, '').toLowerCase();
+      const amount = Number(item.amount) || 0;
+      const sig = `${item.date}_${item.type}_${cleanMerchant}_${amount}`;
+
+      if (exactMap.has(sig)) {
+        suspiciousIdSet.add(item.id);
+        suspicious.push({
+          ...item,
+          reason: `완전 동일 내역 중복 등록 (기준: ${exactMap.get(sig).date})`
+        });
+      } else {
+        exactMap.set(sig, item);
+      }
+    });
+
+    // 3. AI Date-Misrecognized Duplicates (Same merchant & amount, but different dates — e.g. 차이풍 케이스)
+    // Group all transactions by cleanMerchant + amount
+    const merchantAmountGroups = new Map();
+    list.forEach(item => {
+      const cleanMerchant = String(item.merchant || '').replace(/\s+/g, '').toLowerCase();
+      const amount = Number(item.amount) || 0;
+      if (!cleanMerchant || amount <= 0) return;
+
+      const groupKey = `${cleanMerchant}_${amount}`;
+      if (!merchantAmountGroups.has(groupKey)) {
+        merchantAmountGroups.set(groupKey, []);
+      }
+      merchantAmountGroups.get(groupKey).push(item);
+    });
+
+    merchantAmountGroups.forEach((groupItems) => {
+      if (groupItems.length <= 1) return;
+
+      // Sort items by date descending, prioritizing current year & latest valid date
+      const sorted = [...groupItems].sort((a, b) => {
+        const yearA = parseInt(String(a.date).slice(0, 4), 10) || 0;
+        const yearB = parseInt(String(b.date).slice(0, 4), 10) || 0;
+
+        // Current year takes precedence over past years (e.g. 2026 > 2024)
+        const isACurrent = yearA === currentYear ? 1 : 0;
+        const isBCurrent = yearB === currentYear ? 1 : 0;
+        if (isACurrent !== isBCurrent) return isBCurrent - isACurrent;
+
+        // Then latest date wins
+        return String(b.date).localeCompare(String(a.date));
+      });
+
+      // The first one (most legitimate recent entry) is kept as master
+      const master = sorted[0];
+
+      // All other duplicates in this group are flagged
+      for (let i = 1; i < sorted.length; i++) {
+        const dupe = sorted[i];
+        if (suspiciousIdSet.has(dupe.id)) continue;
+
+        const dupeYear = parseInt(String(dupe.date).slice(0, 4), 10) || 0;
+        let reason = '';
+        if (dupeYear > 0 && dupeYear < currentYear) {
+          reason = `과거 연도 오인식 중복 (정상: ${master.date} / 감지: ${dupe.date})`;
+        } else {
+          reason = `날짜 오인식 중복 의심 (동일 상호·금액, 기준: ${master.date})`;
+        }
+
+        suspiciousIdSet.add(dupe.id);
+        suspicious.push({
+          ...dupe,
+          reason
+        });
       }
     });
 
     setSuspiciousRows(suspicious);
     setSelectedCleanupIds(new Set(suspicious.map(s => s.id)));
     setShowCleanup(true);
-    setCleanupMessage(suspicious.length === 0 ? '정리가 필요한 중복·실패 내역이 없습니다.' : `총 ${suspicious.length}건의 의심 내역이 감지되었습니다.`);
+    setCleanupMessage(
+      suspicious.length === 0
+        ? '정리가 필요한 중복·실패 내역이 없습니다.'
+        : `총 ${suspicious.length}건의 잘못된 내역(과거 연도 오인식 및 유사 중복)이 감지되었습니다.`
+    );
   };
 
   const handleExecuteCleanup = async () => {
     if (selectedCleanupIds.size === 0) return;
-    if (!confirm(`선택한 ${selectedCleanupIds.size}건의 내역을 영구 삭제하시겠습니까?`)) return;
+    if (!confirm(`선택한 ${selectedCleanupIds.size}건의 내역을 구글 시트와 앱에서 영구 삭제하시겠습니까?`)) return;
 
     let list = [];
     try {
@@ -467,10 +599,11 @@ export default function SettingsModal({
       list = saved ? JSON.parse(saved) : [];
     } catch (_) {}
 
+    const idsToDeleteArray = Array.from(selectedCleanupIds);
     const remaining = list.filter(item => !selectedCleanupIds.has(item.id));
     localStorage.setItem('budget_local_transactions', JSON.stringify(remaining));
 
-    // Push full sync to Google Sheets
+    // Send atomic delete request to Google Sheets
     const sheetsUrl = (googleSheetsUrl || localStorage.getItem('budget_sheets_url') || '').trim();
     if (sheetsUrl) {
       try {
@@ -478,12 +611,26 @@ export default function SettingsModal({
           method: 'POST',
           headers: { 'Content-Type': 'text/plain;charset=utf-8' },
           body: JSON.stringify({
-            action: 'sync_transactions',
-            transactions: remaining,
+            action: 'delete_multiple_transactions',
+            ids: idsToDeleteArray,
             token
           })
         });
-      } catch (_) {}
+      } catch (_) {
+        // Fallback for older script: sync remaining
+        try {
+          await fetch(sheetsUrl, {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({
+              action: 'delete_multiple_transactions',
+              ids: idsToDeleteArray,
+              token
+            })
+          });
+        } catch (__) {}
+      }
     }
 
     setCleanupMessage(`🎉 ${selectedCleanupIds.size}건 삭제 완료! 가계부와 구글 시트가 깨끗하게 정리되었습니다.`);
