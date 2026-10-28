@@ -507,7 +507,7 @@ export default function App() {
 
         const sheetStartDay = Number(data.settings?.month_start_day) || Number(embeddedConfig?.month_start_day) || 0;
         let finalStartDay = monthStartDay;
-        if (sheetStartDay >= 1 && sheetStartDay <= 28) {
+        if (sheetStartDay >= 1 && sheetStartDay <= 31) {
           finalStartDay = sheetStartDay;
           localStorage.setItem('budget_month_start_day', String(sheetStartDay));
           setMonthStartDay(sheetStartDay);
@@ -840,7 +840,7 @@ export default function App() {
       : (Number(localStorage.getItem('budget_monthly_target')) || settings?.monthly_budget || 1200000);
 
     const newStartDay = newSettings.month_start_day !== undefined
-      ? Math.max(1, Math.min(28, Number(newSettings.month_start_day) || 1))
+      ? Math.max(1, Math.min(31, Number(newSettings.month_start_day) || 1))
       : (Number(localStorage.getItem('budget_month_start_day')) || settings?.month_start_day || 1);
 
     // Always persist to localstorage first

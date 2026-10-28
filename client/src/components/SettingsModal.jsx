@@ -4,6 +4,8 @@ import {
   Key,
   Target,
   Calendar,
+  Minus,
+  Plus,
   Download,
   Upload,
   FileSpreadsheet,
@@ -879,74 +881,115 @@ export default function SettingsModal({
           <hr className="border-zinc-100" />
 
           {/* 4. Budget Month Start Day Section */}
-          <div className="space-y-2.5">
+          <div className="space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Calendar className="w-4 h-4 text-zinc-700" />
                 <h3 className="text-xs sm:text-sm font-bold text-zinc-900">한 달 시작일 (월급날 기준)</h3>
               </div>
-              <span className="text-[11px] font-semibold text-zinc-500">
-                매월 {startDay}일 시작
+              <span className="text-[11px] font-semibold text-zinc-600 bg-zinc-100 px-2 py-0.5 rounded-md border border-zinc-200">
+                매월 {Number(startDay) || 1}일 시작
               </span>
             </div>
 
             <p className="text-xs text-zinc-500 leading-relaxed">
-              월급날에 맞춰 가계부 한 달 주기를 자유롭게 지정할 수 있습니다.
+              본인의 월급날이나 정산 주기(1일 ~ 31일)를 자유롭게 입력해 주세요.
             </p>
 
-            {/* Quick Presets */}
-            <div className="flex flex-wrap gap-1.5">
-              {[
-                { day: 1, label: '1일 (기본)' },
-                { day: 10, label: '10일' },
-                { day: 15, label: '15일' },
-                { day: 20, label: '20일' },
-                { day: 25, label: '25일' }
-              ].map(p => (
+            {/* Direct Day Input with [-] / [+] Stepper and Quick Shortcuts */}
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center bg-zinc-50 border border-zinc-200 rounded-xl p-1 shadow-xs">
                 <button
-                  key={p.day}
                   type="button"
-                  onClick={() => setStartDay(p.day)}
-                  className={`px-2.5 py-1 text-xs font-semibold rounded-lg border transition ${
-                    startDay === p.day
+                  onClick={() => setStartDay(prev => Math.max(1, (Number(prev) || 1) - 1))}
+                  className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-zinc-200/80 active:scale-95 text-zinc-600 transition cursor-pointer"
+                  title="1일 감소"
+                >
+                  <Minus className="w-3.5 h-3.5" />
+                </button>
+                <div className="flex items-center px-1">
+                  <input
+                    type="number"
+                    min="1"
+                    max="31"
+                    value={startDay}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value, 10);
+                      if (isNaN(val)) {
+                        setStartDay('');
+                      } else {
+                        setStartDay(Math.max(1, Math.min(31, val)));
+                      }
+                    }}
+                    onBlur={() => {
+                      if (!startDay || startDay < 1) setStartDay(1);
+                      else if (startDay > 31) setStartDay(31);
+                    }}
+                    className="w-12 text-center text-sm font-extrabold bg-transparent text-zinc-900 outline-none p-0"
+                  />
+                  <span className="text-xs font-bold text-zinc-600 pr-1">일</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setStartDay(prev => Math.min(31, (Number(prev) || 1) + 1))}
+                  className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-zinc-200/80 active:scale-95 text-zinc-600 transition cursor-pointer"
+                  title="1일 증가"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              {/* Quick shortcut buttons */}
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setStartDay(1)}
+                  className={`px-2.5 py-1.5 text-xs font-medium rounded-xl border transition ${
+                    Number(startDay) === 1
                       ? 'bg-zinc-900 text-white border-zinc-900 shadow-xs'
-                      : 'bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-100'
+                      : 'bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50'
                   }`}
                 >
-                  {p.label}
+                  1일 (기본)
                 </button>
-              ))}
-            </div>
-
-            {/* Custom Day Selector (1 to 28) */}
-            <div className="flex items-center gap-2 pt-1">
-              <label className="text-xs text-zinc-600 font-medium whitespace-nowrap">
-                직접 선택:
-              </label>
-              <select
-                value={startDay}
-                onChange={(e) => setStartDay(Number(e.target.value))}
-                className="text-xs px-2.5 py-1.5 bg-zinc-50 border border-zinc-200 rounded-xl focus:bg-white focus:ring-1 focus:ring-zinc-600 outline-none font-semibold text-zinc-800"
-              >
-                {Array.from({ length: 28 }, (_, i) => i + 1).map(d => (
-                  <option key={d} value={d}>
-                    매월 {d}일{d === 1 ? ' (기본)' : ''}
-                  </option>
-                ))}
-              </select>
+                <button
+                  type="button"
+                  onClick={() => setStartDay(25)}
+                  className={`px-2.5 py-1.5 text-xs font-medium rounded-xl border transition ${
+                    Number(startDay) === 25
+                      ? 'bg-zinc-900 text-white border-zinc-900 shadow-xs'
+                      : 'bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50'
+                  }`}
+                >
+                  25일
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStartDay(31)}
+                  className={`px-2.5 py-1.5 text-xs font-medium rounded-xl border transition ${
+                    Number(startDay) === 31
+                      ? 'bg-zinc-900 text-white border-zinc-900 shadow-xs'
+                      : 'bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50'
+                  }`}
+                >
+                  말일
+                </button>
+              </div>
             </div>
 
             {/* Period Preview Info Box */}
             <div className="p-2.5 bg-zinc-50 border border-zinc-200/80 rounded-xl text-xs text-zinc-600 space-y-1">
-              <div className="flex items-center gap-1.5 font-medium text-zinc-800">
+              <div className="flex items-center gap-1.5 font-semibold text-zinc-800">
                 <span>🗓️ 집계 기간 안내</span>
               </div>
               <div className="text-[11px] text-zinc-500 leading-relaxed">
-                {startDay === 1 ? (
+                {Number(startDay) === 1 ? (
                   <>10월 가계부는 <strong>10월 1일 ~ 10월 말일</strong>까지의 내역을 합산합니다.</>
+                ) : Number(startDay) === 31 ? (
+                  <>10월 가계부는 <strong>10월 말일(31일) ~ 11월 29일</strong>까지 집계되며, 30일/28일로 끝나는 달에는 각 달의 말일로 자동 보정됩니다.</>
                 ) : (
                   <>
-                    10월 가계부는 <strong>10월 {startDay}일 ~ 11월 {startDay - 1}일</strong>까지의 내역을 합산합니다.
+                    10월 가계부는 <strong>10월 {startDay || 1}일 ~ 11월 {Math.max(1, (Number(startDay) || 1) - 1)}일</strong>까지의 내역을 합산합니다.
                   </>
                 )}
               </div>

@@ -161,13 +161,13 @@ export function normalizeTimeHM(raw) {
  * 주어진 기준 연도(year), 월(month), 시작일(startDay)에 해당하는 가계부 날짜 범위와 일자 목록을 계산
  * @param {number|string} year - 연도 (예: 2026)
  * @param {number|string} month - 월 (1~12)
- * @param {number|string} startDay - 월 시작일 (1~28, 기본값: 1)
+ * @param {number|string} startDay - 월 시작일 (1~31, 기본값: 1)
  * @returns {{ startDate: string, endDate: string, rangeLabel: string, days: Array<{ dayKey: string, label: string, day: string }> }}
  */
 export function getBudgetMonthRange(year, month, startDay = 1) {
   const y = Number(year);
   const m = Number(month);
-  const cleanDay = Math.max(1, Math.min(28, Number(startDay) || 1));
+  const cleanDay = Math.max(1, Math.min(31, Number(startDay) || 1));
 
   if (cleanDay === 1) {
     const lastDate = new Date(y, m, 0).getDate();
@@ -189,11 +189,17 @@ export function getBudgetMonthRange(year, month, startDay = 1) {
     };
   }
 
-  // 시작일이 1일이 아닌 경우 (예: startDay = 25)
-  // 시작: y년 m월 startDay일
-  // 끝: 다음달 (startDay - 1)일
-  const startObj = new Date(y, m - 1, cleanDay);
-  const endObj = new Date(y, m, cleanDay - 1);
+  // 시작일이 1일이 아닌 경우 (예: startDay = 25 또는 31)
+  // 현재 월의 실제 마지막 일수를 넘지 않도록 보정 (예: 2월 30일 -> 2월 28일)
+  const daysInCurrMonth = new Date(y, m, 0).getDate();
+  const actualStartDay = Math.min(cleanDay, daysInCurrMonth);
+  const startObj = new Date(y, m - 1, actualStartDay);
+
+  // 다음 달 주기가 시작되기 전날까지가 현재 주기
+  const daysInNextMonth = new Date(y, m + 1, 0).getDate();
+  const nextCycleStartDay = Math.min(cleanDay, daysInNextMonth);
+  // (y, m, nextCycleStartDay - 1) -> y년 (m-1 + 1)월 (nextCycleStartDay - 1)일
+  const endObj = new Date(y, m, nextCycleStartDay - 1);
 
   const startYMD = todayYMD(startObj);
   const endYMD = todayYMD(endObj);
