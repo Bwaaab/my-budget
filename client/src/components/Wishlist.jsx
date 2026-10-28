@@ -411,7 +411,7 @@ export default function Wishlist({
 
       {/* Add / Edit Modal */}
       {isAddModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-zinc-900/40 backdrop-blur-xs animate-fade-in">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-zinc-900/60 animate-fade-in">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden border border-zinc-200 flex flex-col">
             <div className="px-5 py-3.5 border-b border-zinc-100 flex items-center justify-between">
               <h2 className="text-sm font-bold text-zinc-900">

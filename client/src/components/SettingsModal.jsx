@@ -691,7 +691,7 @@ export default function SettingsModal({
   return (
     <div
       onClick={handleCloseWithSave}
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-zinc-900/40 backdrop-blur-xs animate-fade-in"
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-zinc-900/60 animate-fade-in"
     >
       <div
         onClick={(e) => e.stopPropagation()}

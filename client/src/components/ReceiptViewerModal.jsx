@@ -5,7 +5,7 @@ export default function ReceiptViewerModal({ isOpen, onClose, imagePath }) {
   if (!isOpen || !imagePath) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/80 backdrop-blur-sm animate-fade-in">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-zinc-900/80 animate-fade-in">
       <div className="bg-slate-900 rounded-3xl overflow-hidden max-w-lg w-full max-h-[90vh] flex flex-col border border-slate-700 shadow-2xl">
         <div className="p-3 border-b border-slate-800 flex items-center justify-between text-white">
           <span className="text-xs font-semibold text-slate-300">원본 영수증 / 캡처 사진</span>

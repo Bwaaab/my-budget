@@ -936,7 +936,7 @@ export default function App() {
 
       {/* Fullscreen Drag Overlay */}
       {isDraggingOver && (
-        <div className="fixed inset-0 z-50 bg-zinc-900/80 backdrop-blur-xs flex flex-col items-center justify-center text-white pointer-events-none border-2 border-dashed border-zinc-400">
+        <div className="fixed inset-0 z-50 bg-zinc-900/80 flex flex-col items-center justify-center text-white pointer-events-none border-2 border-dashed border-zinc-400">
           <UploadCloud className="w-12 h-12 text-zinc-300 mb-2" />
           <h2 className="text-base font-bold">영수증/캡처 이미지를 여기에 놓으세요</h2>
           <p className="text-xs text-zinc-400 mt-1">AI가 지출 내역을 자동 분석합니다</p>
@@ -1197,7 +1197,7 @@ export default function App() {
       {isInstallGuideOpen && (
         <div
           onClick={() => setIsInstallGuideOpen(false)}
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-900/50 backdrop-blur-xs animate-fade-in"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-900/60 animate-fade-in"
         >
           <div
             onClick={(e) => e.stopPropagation()}

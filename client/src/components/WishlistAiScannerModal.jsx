@@ -407,7 +407,7 @@ export default function WishlistAiScannerModal({
   const isAffordable = numericPrice > 0 && remainingBudget >= numericPrice;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-zinc-900/60 backdrop-blur-xs animate-fade-in overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-zinc-900/60 animate-fade-in overflow-y-auto">
       <div className="bg-white rounded-3xl shadow-2xl w-full max-w-3xl overflow-hidden my-auto max-h-[92vh] flex flex-col border border-zinc-200">
         {/* Modal Header — Distinct Wishlist AI Scanner Header */}
         <div className="px-5 py-3.5 border-b border-zinc-200 flex items-center justify-between bg-zinc-900 text-white">
@@ -536,7 +536,7 @@ export default function WishlistAiScannerModal({
                   />
 
                   {isAnalyzing && (
-                    <div className="absolute inset-0 bg-zinc-900/75 backdrop-blur-xs flex flex-col items-center justify-center text-white p-4 text-center">
+                    <div className="absolute inset-0 bg-zinc-900/85 flex flex-col items-center justify-center text-white p-4 text-center">
                       <Sparkles className="w-8 h-8 text-white animate-spin mb-2" />
                       <p className="text-xs sm:text-sm font-bold">AI가 상품명과 가격을 읽고 있습니다...</p>
                       <p className="text-[11px] text-zinc-300 mt-1">잠시만 기다려 주세요</p>
@@ -549,7 +549,7 @@ export default function WishlistAiScannerModal({
                       setFile(null);
                       setPreviewUrl('');
                     }}
-                    className="absolute top-2.5 right-2.5 px-2.5 py-1 bg-zinc-900/80 hover:bg-zinc-900 text-white text-[11px] font-semibold rounded-lg flex items-center gap-1 backdrop-blur-xs transition"
+                    className="absolute top-2.5 right-2.5 px-2.5 py-1 bg-zinc-900 text-white text-[11px] font-semibold rounded-lg flex items-center gap-1 transition"
                   >
                     <RotateCcw className="w-3 h-3" />
                     <span>다시 선택</span>

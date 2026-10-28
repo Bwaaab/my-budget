@@ -418,7 +418,7 @@ export default function AiScannerModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-zinc-900/60 animate-fade-in overflow-y-auto">
       <div className="bg-white rounded-3xl shadow-2xl w-full max-w-3xl overflow-hidden my-auto max-h-[92vh] flex flex-col border border-slate-100">
         {/* Modal Header */}
         <div className="px-5 py-3.5 border-b border-zinc-100 flex items-center justify-between bg-zinc-50/50">
@@ -557,7 +557,7 @@ export default function AiScannerModal({
 
                 {/* Laser Scanning Animation when analyzing */}
                 {isAnalyzing && (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-indigo-950/40 backdrop-blur-xs">
+                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-indigo-950/70">
                     <div className="w-full h-1 bg-gradient-to-r from-transparent via-cyan-400 to-transparent absolute animate-bounce" />
                     <div className="bg-slate-900/80 text-white px-4 py-2 rounded-xl text-xs font-medium flex items-center gap-2 shadow-lg border border-slate-700">
                       <Sparkles className="w-4 h-4 text-yellow-300 animate-spin" />
