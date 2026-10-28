@@ -12,15 +12,17 @@ import ReceiptViewerModal from './components/ReceiptViewerModal';
 import MobileBottomNav from './components/MobileBottomNav';
 import Wishlist from './components/Wishlist';
 import { Sparkles, UploadCloud, Smartphone, Wallet, Heart } from 'lucide-react';
-import { normalizeDateYMD, normalizeTimeHM, isSavingTx, getNecessity, cleanNumber, todayYMD, nowHM } from './constants';
+import { normalizeDateYMD, normalizeTimeHM, isSavingTx, getNecessity, cleanNumber, todayYMD, nowHM, getBudgetMonthRange } from './constants';
 import { getSheetsToken, setSheetsToken, ensureSheetsToken, buildSheetsGetUrl } from './sheetsAuth';
 
 // Helper: Client-side stats computation (used on GitHub Pages / Serverless)
-function computeClientStats(txList, year, month, monthlyBudget = 1200000) {
-  const monthStr = String(month).padStart(2, '0');
-  const pattern = `${year}-${monthStr}`;
+function computeClientStats(txList, year, month, monthlyBudget = 1200000, startDay = 1) {
+  const range = getBudgetMonthRange(year, month, startDay);
   const allTx = txList || [];
-  const monthlyTx = allTx.filter(t => normalizeDateYMD(t.date).startsWith(pattern));
+  const monthlyTx = allTx.filter(t => {
+    const d = normalizeDateYMD(t.date);
+    return d >= range.startDate && d <= range.endDate;
+  });
 
   let totalExpense = 0;
   let totalNeedExpense = 0;
@@ -36,11 +38,9 @@ function computeClientStats(txList, year, month, monthlyBudget = 1200000) {
   }
 
   const catMap = {};
-  const daysInMonth = new Date(year, month, 0).getDate();
   const dailyMap = {};
-  for (let i = 1; i <= daysInMonth; i++) {
-    const dayKey = `${pattern}-${String(i).padStart(2, '0')}`;
-    dailyMap[dayKey] = { day: String(i), expense: 0, income: 0, saving: 0 };
+  for (const d of range.days) {
+    dailyMap[d.dayKey] = { day: d.day, label: d.label, expense: 0, income: 0, saving: 0 };
   }
 
   for (const t of monthlyTx) {
@@ -80,6 +80,9 @@ function computeClientStats(txList, year, month, monthlyBudget = 1200000) {
   return {
     year,
     month,
+    startDate: range.startDate,
+    endDate: range.endDate,
+    rangeLabel: range.rangeLabel,
     totalExpense,
     totalNeedExpense,
     totalWantExpense,
@@ -166,27 +169,34 @@ export default function App() {
     }
   });
 
+  const [monthStartDay, setMonthStartDay] = useState(() => {
+    return Number(localStorage.getItem('budget_month_start_day')) || 1;
+  });
+
   const [settings, setSettings] = useState(() => {
     const key = localStorage.getItem('budget_gemini_key') || '';
     const sheets = localStorage.getItem('budget_sheets_url') || '';
     const b = Number(localStorage.getItem('budget_monthly_target')) || 1200000;
+    const startDay = Number(localStorage.getItem('budget_month_start_day')) || 1;
     return {
       gemini_api_key: key,
       hasApiKey: !!key,
       monthly_budget: b,
-      google_sheets_url: sheets
+      google_sheets_url: sheets,
+      month_start_day: startDay
     };
   });
 
   const [stats, setStats] = useState(() => {
     const now = new Date();
     const b = Number(localStorage.getItem('budget_monthly_target')) || 1200000;
+    const startDay = Number(localStorage.getItem('budget_month_start_day')) || 1;
     let list = [];
     try {
       const saved = localStorage.getItem('budget_local_transactions');
       list = saved ? JSON.parse(saved) : [];
     } catch (_) {}
-    return computeClientStats(list, now.getFullYear(), now.getMonth() + 1, b);
+    return computeClientStats(list, now.getFullYear(), now.getMonth() + 1, b, startDay);
   });
 
   const [networkInfo, setNetworkInfo] = useState(null);
@@ -271,11 +281,10 @@ export default function App() {
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth() + 1;
 
-  // Keep stats in sync whenever transactions, year, month, or monthly_budget change
+  // Keep stats in sync whenever transactions, year, month, monthly_budget, or monthStartDay change
   useEffect(() => {
     const b = Number(settings?.monthly_budget) || Number(localStorage.getItem('budget_monthly_target')) || 1200000;
-    const monthStr = String(month).padStart(2, '0');
-    const pattern = `${year}-${monthStr}`;
+    const startDay = Number(monthStartDay) || Number(settings?.month_start_day) || Number(localStorage.getItem('budget_month_start_day')) || 1;
     let allTx = transactions;
     try {
       const saved = localStorage.getItem('budget_local_transactions');
@@ -284,8 +293,8 @@ export default function App() {
         if (parsed.length > allTx.length) allTx = parsed;
       }
     } catch (_) {}
-    setStats(computeClientStats(allTx, year, month, b));
-  }, [transactions, year, month, settings?.monthly_budget]);
+    setStats(computeClientStats(allTx, year, month, b, startDay));
+  }, [transactions, year, month, settings?.monthly_budget, settings?.month_start_day, monthStartDay]);
 
   // 1. Fetch Transactions (Merges localStorage & optional local server)
   const fetchTransactions = useCallback(async () => {
@@ -310,11 +319,13 @@ export default function App() {
       } catch (_) {}
     }
 
-    const monthStr = String(month).padStart(2, '0');
-    const pattern = `${year}-${monthStr}`;
-    const filtered = localList.filter(t => normalizeDateYMD(t.date).startsWith(pattern));
+    const range = getBudgetMonthRange(year, month, monthStartDay);
+    const filtered = localList.filter(t => {
+      const d = normalizeDateYMD(t.date);
+      return d >= range.startDate && d <= range.endDate;
+    });
     setTransactions(filtered);
-  }, [year, month]);
+  }, [year, month, monthStartDay]);
 
   // 2. Fetch Stats
   const fetchStats = useCallback(async () => {
@@ -324,8 +335,9 @@ export default function App() {
       localList = saved ? JSON.parse(saved) : [];
     } catch (_) {}
     const b = Number(localStorage.getItem('budget_monthly_target')) || Number(settings?.monthly_budget) || 1200000;
-    setStats(computeClientStats(localList, year, month, b));
-  }, [year, month, settings?.monthly_budget]);
+    const startDay = Number(monthStartDay) || Number(settings?.month_start_day) || 1;
+    setStats(computeClientStats(localList, year, month, b, startDay));
+  }, [year, month, settings?.monthly_budget, settings?.month_start_day, monthStartDay]);
 
   // 3. Fetch Settings (Never overwrites localStorage with empty server values)
   const fetchSettings = useCallback(async () => {
@@ -441,9 +453,12 @@ export default function App() {
             };
           });
           localStorage.setItem('budget_local_transactions', JSON.stringify(normalizedTx));
-          const monthStr = String(month).padStart(2, '0');
-          const pattern = `${year}-${monthStr}`;
-          setTransactions(normalizedTx.filter(t => normalizeDateYMD(t.date).startsWith(pattern)));
+          const currentStartDay = Number(localStorage.getItem('budget_month_start_day')) || monthStartDay || 1;
+          const range = getBudgetMonthRange(year, month, currentStartDay);
+          setTransactions(normalizedTx.filter(t => {
+            const d = normalizeDateYMD(t.date);
+            return d >= range.startDate && d <= range.endDate;
+          }));
           txCount = normalizedTx.length;
         }
 
@@ -479,7 +494,7 @@ export default function App() {
           }
         }
 
-        // 3. Monthly Budget Target + Gemini API Key Sync (stored in '설정' sheet)
+        // 3. Monthly Budget Target, Gemini API Key, and Budget Month Start Day Sync (stored in '설정' sheet)
         const sheetBudget = Number(data.settings?.monthly_budget) || Number(embeddedConfig?.monthly_budget) || 0;
         let finalBudget = 1200000;
 
@@ -490,12 +505,21 @@ export default function App() {
           localStorage.setItem('budget_gemini_key', finalApiKey);
         }
 
+        const sheetStartDay = Number(data.settings?.month_start_day) || Number(embeddedConfig?.month_start_day) || 0;
+        let finalStartDay = monthStartDay;
+        if (sheetStartDay >= 1 && sheetStartDay <= 28) {
+          finalStartDay = sheetStartDay;
+          localStorage.setItem('budget_month_start_day', String(sheetStartDay));
+          setMonthStartDay(sheetStartDay);
+        }
+
         if (overrideLocalBudget && Number(overrideLocalBudget) !== 1200000) {
           finalBudget = Number(overrideLocalBudget);
           await postToGoogleSheets(sheetsUrl, {
             action: 'update_budget',
             monthly_budget: finalBudget,
-            gemini_api_key: finalApiKey
+            gemini_api_key: finalApiKey,
+            month_start_day: finalStartDay
           });
         } else if (sheetBudget && sheetBudget !== 1200000) {
           finalBudget = sheetBudget;
@@ -504,7 +528,8 @@ export default function App() {
           await postToGoogleSheets(sheetsUrl, {
             action: 'update_budget',
             monthly_budget: finalBudget,
-            gemini_api_key: finalApiKey
+            gemini_api_key: finalApiKey,
+            month_start_day: finalStartDay
           });
         } else if (sheetBudget) {
           finalBudget = sheetBudget;
@@ -517,7 +542,8 @@ export default function App() {
           await postToGoogleSheets(sheetsUrl, {
             action: 'update_budget',
             monthly_budget: finalBudget,
-            gemini_api_key: finalApiKey
+            gemini_api_key: finalApiKey,
+            month_start_day: finalStartDay
           });
         }
 
@@ -527,13 +553,16 @@ export default function App() {
           gemini_api_key: finalApiKey || prev?.gemini_api_key || '',
           hasApiKey: !!(finalApiKey || prev?.hasApiKey),
           monthly_budget: finalBudget,
-          google_sheets_url: sheetsUrl
+          google_sheets_url: sheetsUrl,
+          month_start_day: finalStartDay
         }));
       } else if (Array.isArray(data)) {
         localStorage.setItem('budget_local_transactions', JSON.stringify(data));
-        const monthStr = String(month).padStart(2, '0');
-        const pattern = `${year}-${monthStr}`;
-        setTransactions(data.filter(t => !t.date || t.date.startsWith(pattern)));
+        const range = getBudgetMonthRange(year, month, monthStartDay);
+        setTransactions(data.filter(t => {
+          const d = normalizeDateYMD(t.date);
+          return d >= range.startDate && d <= range.endDate;
+        }));
         txCount = data.length;
       }
 
@@ -736,12 +765,14 @@ export default function App() {
 
     const txYear = parseInt(cleanDate.slice(0, 4), 10);
     const txMonth = parseInt(cleanDate.slice(5, 7), 10);
-    if (!isNaN(txYear) && !isNaN(txMonth) && (txYear !== year || txMonth !== month)) {
+    const range = getBudgetMonthRange(year, month, monthStartDay);
+    if (!isNaN(txYear) && !isNaN(txMonth) && (cleanDate < range.startDate || cleanDate > range.endDate)) {
       setCurrentDate(new Date(txYear, txMonth - 1, 1));
     } else {
-      const monthStr = String(month).padStart(2, '0');
-      const pattern = `${year}-${monthStr}`;
-      setTransactions(list.filter(t => normalizeDateYMD(t.date).startsWith(pattern)));
+      setTransactions(list.filter(t => {
+        const d = normalizeDateYMD(t.date);
+        return d >= range.startDate && d <= range.endDate;
+      }));
     }
 
     fetchStats();
@@ -784,9 +815,11 @@ export default function App() {
     list = list.filter(t => t.id !== id);
     localStorage.setItem('budget_local_transactions', JSON.stringify(list));
 
-    const monthStr = String(month).padStart(2, '0');
-    const pattern = `${year}-${monthStr}`;
-    setTransactions(list.filter(t => normalizeDateYMD(t.date).startsWith(pattern)));
+    const range = getBudgetMonthRange(year, month, monthStartDay);
+    setTransactions(list.filter(t => {
+      const d = normalizeDateYMD(t.date);
+      return d >= range.startDate && d <= range.endDate;
+    }));
     fetchStats();
     showToast('🗑️ 내역이 삭제되었습니다.');
 
@@ -806,6 +839,10 @@ export default function App() {
       ? Number(newSettings.monthly_budget)
       : (Number(localStorage.getItem('budget_monthly_target')) || settings?.monthly_budget || 1200000);
 
+    const newStartDay = newSettings.month_start_day !== undefined
+      ? Math.max(1, Math.min(28, Number(newSettings.month_start_day) || 1))
+      : (Number(localStorage.getItem('budget_month_start_day')) || settings?.month_start_day || 1);
+
     // Always persist to localstorage first
     if (newSettings.gemini_api_key) {
       localStorage.setItem('budget_gemini_key', newSettings.gemini_api_key.trim());
@@ -816,6 +853,8 @@ export default function App() {
     if (newBudget > 0) {
       localStorage.setItem('budget_monthly_target', String(newBudget));
     }
+    localStorage.setItem('budget_month_start_day', String(newStartDay));
+    setMonthStartDay(newStartDay);
 
     // Immediately update local React state
     setSettings(prev => ({
@@ -823,16 +862,24 @@ export default function App() {
       gemini_api_key: newSettings.gemini_api_key !== undefined ? newSettings.gemini_api_key : prev?.gemini_api_key,
       hasApiKey: !!(newSettings.gemini_api_key || prev?.hasApiKey || localStorage.getItem('budget_gemini_key')),
       google_sheets_url: cleanSheetsUrl,
-      monthly_budget: newBudget
+      monthly_budget: newBudget,
+      month_start_day: newStartDay
     }));
 
-    // Update stats immediately with new budget
+    // Update stats immediately with new budget & start day
     let localList = [];
     try {
       const saved = localStorage.getItem('budget_local_transactions');
       localList = saved ? JSON.parse(saved) : [];
     } catch (_) {}
-    setStats(computeClientStats(localList, year, month, newBudget));
+    setStats(computeClientStats(localList, year, month, newBudget, newStartDay));
+
+    // Update transactions list for the new date range
+    const range = getBudgetMonthRange(year, month, newStartDay);
+    setTransactions(localList.filter(t => {
+      const d = normalizeDateYMD(t.date);
+      return d >= range.startDate && d <= range.endDate;
+    }));
 
     // Also update local server if running
     try {
@@ -842,18 +889,20 @@ export default function App() {
         body: JSON.stringify({
           ...newSettings,
           google_sheets_url: cleanSheetsUrl,
-          monthly_budget: newBudget
+          monthly_budget: newBudget,
+          month_start_day: newStartDay
         })
       });
     } catch (_) {}
 
-    // Push budget + Gemini API key to Google Sheets '설정' sheet
+    // Push budget + Gemini API key + month start day to Google Sheets '설정' sheet
     if (cleanSheetsUrl && !cleanSheetsUrl.includes('/macros/library/')) {
       const currentKey = (newSettings.gemini_api_key || localStorage.getItem('budget_gemini_key') || '').trim();
       await postToGoogleSheets(cleanSheetsUrl, {
         action: 'update_budget',
         monthly_budget: newBudget,
-        gemini_api_key: currentKey
+        gemini_api_key: currentKey,
+        month_start_day: newStartDay
       });
     }
 
@@ -897,6 +946,8 @@ export default function App() {
       {/* Top Header */}
       <Header
         currentDate={currentDate}
+        monthStartDay={monthStartDay}
+        rangeLabel={stats.rangeLabel}
         onPrevMonth={handlePrevMonth}
         onNextMonth={handleNextMonth}
         onOpenScanner={() => {
@@ -1127,6 +1178,7 @@ export default function App() {
         isOpen={isSettingsModalOpen}
         onClose={() => setIsSettingsModalOpen(false)}
         settings={settings}
+        monthStartDay={monthStartDay}
         onSaveSettings={handleSaveSettings}
         onRefreshData={() => {
           fetchTransactions();

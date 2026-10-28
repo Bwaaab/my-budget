@@ -156,3 +156,71 @@ export function normalizeTimeHM(raw) {
   }
   return '';
 }
+
+/**
+ * 주어진 기준 연도(year), 월(month), 시작일(startDay)에 해당하는 가계부 날짜 범위와 일자 목록을 계산
+ * @param {number|string} year - 연도 (예: 2026)
+ * @param {number|string} month - 월 (1~12)
+ * @param {number|string} startDay - 월 시작일 (1~28, 기본값: 1)
+ * @returns {{ startDate: string, endDate: string, rangeLabel: string, days: Array<{ dayKey: string, label: string, day: string }> }}
+ */
+export function getBudgetMonthRange(year, month, startDay = 1) {
+  const y = Number(year);
+  const m = Number(month);
+  const cleanDay = Math.max(1, Math.min(28, Number(startDay) || 1));
+
+  if (cleanDay === 1) {
+    const lastDate = new Date(y, m, 0).getDate();
+    const startDate = `${y}-${pad2(m)}-01`;
+    const endDate = `${y}-${pad2(m)}-${pad2(lastDate)}`;
+    const days = [];
+    for (let d = 1; d <= lastDate; d++) {
+      days.push({
+        dayKey: `${y}-${pad2(m)}-${pad2(d)}`,
+        label: `${d}일`,
+        day: String(d),
+      });
+    }
+    return {
+      startDate,
+      endDate,
+      rangeLabel: `${m}.1 ~ ${m}.${lastDate}`,
+      days,
+    };
+  }
+
+  // 시작일이 1일이 아닌 경우 (예: startDay = 25)
+  // 시작: y년 m월 startDay일
+  // 끝: 다음달 (startDay - 1)일
+  const startObj = new Date(y, m - 1, cleanDay);
+  const endObj = new Date(y, m, cleanDay - 1);
+
+  const startYMD = todayYMD(startObj);
+  const endYMD = todayYMD(endObj);
+
+  const days = [];
+  const curr = new Date(startObj);
+  while (curr <= endObj) {
+    const dayKey = todayYMD(curr);
+    const currM = curr.getMonth() + 1;
+    const currD = curr.getDate();
+    days.push({
+      dayKey,
+      label: `${currM}.${currD}`,
+      day: String(currD),
+    });
+    curr.setDate(curr.getDate() + 1);
+  }
+
+  const startMLabel = startObj.getMonth() + 1;
+  const startDLabel = startObj.getDate();
+  const endMLabel = endObj.getMonth() + 1;
+  const endDLabel = endObj.getDate();
+
+  return {
+    startDate: startYMD,
+    endDate: endYMD,
+    rangeLabel: `${startMLabel}.${startDLabel} ~ ${endMLabel}.${endDLabel}`,
+    days,
+  };
+}

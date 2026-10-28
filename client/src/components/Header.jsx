@@ -12,6 +12,8 @@ import Logo from './Logo';
 
 export default function Header({
   currentDate,
+  monthStartDay = 1,
+  rangeLabel = '',
   onPrevMonth,
   onNextMonth,
   onOpenScanner,
@@ -45,9 +47,19 @@ export default function Header({
             >
               <ChevronLeft className="w-3.5 h-3.5" />
             </button>
-            <span className="px-1.5 sm:px-3 text-xs sm:text-sm font-bold text-zinc-800 tracking-tight text-center whitespace-nowrap">
-              {year}년 {month}월
-            </span>
+            <div className="flex items-center gap-1.5 px-1.5 sm:px-2.5">
+              <span className="text-xs sm:text-sm font-bold text-zinc-800 tracking-tight text-center whitespace-nowrap">
+                {year}년 {month}월
+              </span>
+              {monthStartDay && monthStartDay !== 1 && rangeLabel && (
+                <span
+                  className="text-[10px] sm:text-[11px] font-medium px-1.5 py-0.5 rounded-md bg-zinc-200 text-zinc-700 whitespace-nowrap"
+                  title={`집계 기간: ${rangeLabel}`}
+                >
+                  {rangeLabel}
+                </span>
+              )}
+            </div>
             <button
               onClick={onNextMonth}
               className="p-1 sm:p-1.5 rounded-lg hover:bg-white text-zinc-500 hover:text-zinc-900 transition-colors"

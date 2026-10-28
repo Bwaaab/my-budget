@@ -3,6 +3,7 @@ import {
   X,
   Key,
   Target,
+  Calendar,
   Download,
   Upload,
   FileSpreadsheet,
@@ -117,22 +118,25 @@ function doGet(e) {
     }
   }
 
-  // 3. Settings (목표 예산 & Gemini API 키)
+  // 3. Settings (목표 예산 & Gemini API 키 & 월 시작일)
   var settingsSheet = ss.getSheetByName('설정');
   var monthly_budget = null;
   var gemini_api_key = '';
+  var month_start_day = 1;
   if (settingsSheet) {
     var sVal = settingsSheet.getRange(1, 2).getValue();
     if (sVal) monthly_budget = Number(sVal);
     var kVal = settingsSheet.getRange(2, 2).getValue();
     if (kVal) gemini_api_key = String(kVal);
+    var dVal = settingsSheet.getRange(3, 2).getValue();
+    if (dVal) month_start_day = Number(dVal);
   }
 
   return jsonResponse_({
     version: 2,
     transactions: transactions,
     wishlist: wishlist,
-    settings: { monthly_budget: monthly_budget, gemini_api_key: gemini_api_key }
+    settings: { monthly_budget: monthly_budget, gemini_api_key: gemini_api_key, month_start_day: month_start_day }
   });
 }
 
@@ -298,7 +302,7 @@ function doPost(e) {
       return jsonResponse_({ success: true });
     }
 
-    // 목표 예산 및 AI API 키 저장
+    // 목표 예산 및 AI API 키, 월 시작일 저장
     if (action === 'update_budget') {
       var settingsSheet = ss.getSheetByName('설정');
       if (!settingsSheet) settingsSheet = ss.insertSheet('설정');
@@ -307,6 +311,10 @@ function doPost(e) {
       if (payload.gemini_api_key) {
         settingsSheet.getRange(2, 1).setValue('gemini_api_key');
         settingsSheet.getRange(2, 2).setValue(String(payload.gemini_api_key));
+      }
+      if (payload.month_start_day) {
+        settingsSheet.getRange(3, 1).setValue('month_start_day');
+        settingsSheet.getRange(3, 2).setValue(Number(payload.month_start_day) || 1);
       }
       return jsonResponse_({ success: true });
     }
@@ -322,12 +330,14 @@ export default function SettingsModal({
   isOpen,
   onClose,
   settings,
+  monthStartDay = 1,
   onSaveSettings,
   onRefreshData,
   onSyncGoogleSheets
 }) {
   const [apiKey, setApiKey] = useState('');
   const [budget, setBudget] = useState('1200000');
+  const [startDay, setStartDay] = useState(1);
   const [googleSheetsUrl, setGoogleSheetsUrl] = useState('');
   const [token, setToken] = useState('');
   const [savedSuccess, setSavedSuccess] = useState(false);
@@ -347,17 +357,19 @@ export default function SettingsModal({
     if (isOpen) {
       const savedKey = settings?.gemini_api_key || localStorage.getItem('budget_gemini_key') || '';
       const savedBudget = Number(localStorage.getItem('budget_monthly_target')) || settings?.monthly_budget || 1200000;
+      const savedStartDay = Number(settings?.month_start_day) || Number(monthStartDay) || Number(localStorage.getItem('budget_month_start_day')) || 1;
       const savedUrl = localStorage.getItem('budget_sheets_url') || settings?.google_sheets_url || '';
       const savedToken = ensureSheetsToken();
 
       setApiKey(savedKey);
       setBudget(String(savedBudget));
+      setStartDay(savedStartDay);
       setGoogleSheetsUrl(savedUrl);
       setToken(savedToken);
       setTestResult('');
       setShowCleanup(false);
     }
-  }, [isOpen, settings]);
+  }, [isOpen, settings, monthStartDay]);
 
   if (!isOpen) return null;
 
@@ -381,7 +393,8 @@ export default function SettingsModal({
     await onSaveSettings({
       gemini_api_key: apiKey,
       monthly_budget: Number(budget) || 1200000,
-      google_sheets_url: cleanUrl
+      google_sheets_url: cleanUrl,
+      month_start_day: Number(startDay) || 1
     });
     setSavedSuccess(true);
     setTimeout(() => setSavedSuccess(false), 2000);
@@ -392,19 +405,22 @@ export default function SettingsModal({
     const isValidUrl = !cleanUrl || (!cleanUrl.includes('/macros/library/') && cleanUrl.startsWith('http'));
     const prevKey = (settings?.gemini_api_key || localStorage.getItem('budget_gemini_key') || '').trim();
     const prevBudget = Number(localStorage.getItem('budget_monthly_target')) || settings?.monthly_budget || 1200000;
+    const prevStartDay = Number(settings?.month_start_day) || Number(localStorage.getItem('budget_month_start_day')) || 1;
     const prevUrl = (localStorage.getItem('budget_sheets_url') || settings?.google_sheets_url || '').trim();
 
     const nextKey = apiKey.trim();
     const nextBudget = Number(budget) || 1200000;
+    const nextStartDay = Number(startDay) || 1;
     const nextUrl = isValidUrl ? cleanUrl : prevUrl;
 
     onClose();
 
-    if (nextKey !== prevKey || nextBudget !== prevBudget || nextUrl !== prevUrl) {
+    if (nextKey !== prevKey || nextBudget !== prevBudget || nextUrl !== prevUrl || nextStartDay !== prevStartDay) {
       onSaveSettings({
         gemini_api_key: nextKey,
         monthly_budget: nextBudget,
-        google_sheets_url: nextUrl
+        google_sheets_url: nextUrl,
+        month_start_day: nextStartDay
       });
     }
   };
@@ -857,6 +873,83 @@ export default function SettingsModal({
               <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-zinc-400">
                 {formatKRW(budget)}
               </span>
+            </div>
+          </div>
+
+          <hr className="border-zinc-100" />
+
+          {/* 4. Budget Month Start Day Section */}
+          <div className="space-y-2.5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Calendar className="w-4 h-4 text-zinc-700" />
+                <h3 className="text-xs sm:text-sm font-bold text-zinc-900">한 달 시작일 (월급날 기준)</h3>
+              </div>
+              <span className="text-[11px] font-semibold text-zinc-500">
+                매월 {startDay}일 시작
+              </span>
+            </div>
+
+            <p className="text-xs text-zinc-500 leading-relaxed">
+              월급날에 맞춰 가계부 한 달 주기를 자유롭게 지정할 수 있습니다.
+            </p>
+
+            {/* Quick Presets */}
+            <div className="flex flex-wrap gap-1.5">
+              {[
+                { day: 1, label: '1일 (기본)' },
+                { day: 10, label: '10일' },
+                { day: 15, label: '15일' },
+                { day: 20, label: '20일' },
+                { day: 25, label: '25일' }
+              ].map(p => (
+                <button
+                  key={p.day}
+                  type="button"
+                  onClick={() => setStartDay(p.day)}
+                  className={`px-2.5 py-1 text-xs font-semibold rounded-lg border transition ${
+                    startDay === p.day
+                      ? 'bg-zinc-900 text-white border-zinc-900 shadow-xs'
+                      : 'bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-100'
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Custom Day Selector (1 to 28) */}
+            <div className="flex items-center gap-2 pt-1">
+              <label className="text-xs text-zinc-600 font-medium whitespace-nowrap">
+                직접 선택:
+              </label>
+              <select
+                value={startDay}
+                onChange={(e) => setStartDay(Number(e.target.value))}
+                className="text-xs px-2.5 py-1.5 bg-zinc-50 border border-zinc-200 rounded-xl focus:bg-white focus:ring-1 focus:ring-zinc-600 outline-none font-semibold text-zinc-800"
+              >
+                {Array.from({ length: 28 }, (_, i) => i + 1).map(d => (
+                  <option key={d} value={d}>
+                    매월 {d}일{d === 1 ? ' (기본)' : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Period Preview Info Box */}
+            <div className="p-2.5 bg-zinc-50 border border-zinc-200/80 rounded-xl text-xs text-zinc-600 space-y-1">
+              <div className="flex items-center gap-1.5 font-medium text-zinc-800">
+                <span>🗓️ 집계 기간 안내</span>
+              </div>
+              <div className="text-[11px] text-zinc-500 leading-relaxed">
+                {startDay === 1 ? (
+                  <>10월 가계부는 <strong>10월 1일 ~ 10월 말일</strong>까지의 내역을 합산합니다.</>
+                ) : (
+                  <>
+                    10월 가계부는 <strong>10월 {startDay}일 ~ 11월 {startDay - 1}일</strong>까지의 내역을 합산합니다.
+                  </>
+                )}
+              </div>
             </div>
           </div>
 

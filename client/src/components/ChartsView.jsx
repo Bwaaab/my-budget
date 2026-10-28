@@ -66,7 +66,7 @@ export default function ChartsView({ stats }) {
 
   // Daily Trend Bar Chart Data
   const barData = {
-    labels: dailyTrend.map(d => `${d.day}일`),
+    labels: dailyTrend.map(d => d.label || `${d.day}일`),
     datasets: [
       {
         label: '일별 지출',
