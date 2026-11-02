@@ -44,10 +44,17 @@ function computeClientStats(txList, year, month, monthlyBudget = 1200000, startD
   let totalIncome = 0;
   let totalSaving = 0;
   let allTimeSaving = 0;
+  let allTimeIncome = 0;
+  let allTimeExpense = 0;
 
   for (const t of allTx) {
+    const amt = Number(t.amount) || 0;
     if (isSavingTx(t)) {
-      allTimeSaving += Number(t.amount) || 0;
+      allTimeSaving += amt;
+    } else if (t.type === 'income') {
+      allTimeIncome += amt;
+    } else if (t.type === 'expense') {
+      allTimeExpense += amt;
     }
   }
 
@@ -79,8 +86,9 @@ function computeClientStats(txList, year, month, monthlyBudget = 1200000, startD
     }
   }
 
-  // Cash left to spend right now = Income - Expense - Saving
-  const balance = totalIncome - totalExpense - totalSaving;
+  // Cumulative cash left to spend right now across all months = AllTimeIncome - AllTimeExpense - AllTimeSaving
+  const balance = allTimeIncome - allTimeExpense - allTimeSaving;
+  const monthlyBalance = totalIncome - totalExpense - totalSaving;
   const remainingBudget = monthlyBudget - totalExpense;
   const budgetPercent = monthlyBudget > 0 ? Math.round((totalExpense / monthlyBudget) * 100) : 0;
   const needPercent = totalExpense > 0 ? Math.round((totalNeedExpense / totalExpense) * 100) : 0;
@@ -106,6 +114,7 @@ function computeClientStats(txList, year, month, monthlyBudget = 1200000, startD
     totalSaving,
     allTimeSaving,
     balance,
+    monthlyBalance,
     monthlyBudget,
     remainingBudget,
     budgetPercent,

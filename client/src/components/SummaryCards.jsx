@@ -13,6 +13,7 @@ export default function SummaryCards({ stats, onOpenBudgetEdit }) {
     totalSaving = 0,
     allTimeSaving = 0,
     balance = 0,
+    monthlyBalance = 0,
     monthlyBudget = 1200000,
     remainingBudget = 0,
     budgetPercent = 0
@@ -68,18 +69,16 @@ export default function SummaryCards({ stats, onOpenBudgetEdit }) {
           </div>
         </div>
 
-        {/* 4. Available Cash Balance (Income - Expense - Saving) */}
+        {/* 4. Available Cash Balance (Cumulative across all months: AllTimeIncome - AllTimeExpense - AllTimeSaving) */}
         <div className="bg-white rounded-2xl p-3.5 sm:p-5 border border-zinc-200/70 shadow-xs min-w-0">
           <div className="text-xs font-medium text-zinc-500 mb-1 sm:mb-1.5 whitespace-nowrap">가용 잔액 (쓸 수 있는 돈)</div>
           <div className={`text-lg sm:text-2xl font-extrabold tracking-tight whitespace-nowrap truncate ${balance >= 0 ? 'text-zinc-900' : 'text-rose-700'}`}>
             {balance > 0 ? `+${formatKRW(balance)}` : formatKRW(balance)}
           </div>
           <div className="mt-1.5 sm:mt-2 text-[11px] text-zinc-400 whitespace-nowrap truncate">
-            {totalSaving > 0
-              ? `저축 제외 실가용 현금`
-              : balance >= 0
-              ? '여유 현금'
-              : '수입 초과 지출'}
+            {monthlyBalance !== 0
+              ? `이달 증감 ${monthlyBalance > 0 ? `+${formatKRW(monthlyBalance)}` : formatKRW(monthlyBalance)}`
+              : '전체 누적 실가용 현금'}
           </div>
         </div>
       </div>
