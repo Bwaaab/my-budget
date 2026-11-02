@@ -21,6 +21,8 @@ import {
 import { formatKRW, addDeletedTxIds, getActiveBudgetMonth, getBudgetMonthRange } from '../constants';
 import {
   getSheetsToken,
+  setSheetsToken,
+  extractCleanSheetsToken,
   ensureSheetsToken,
   regenerateSheetsToken,
   buildSheetsGetUrl
@@ -29,7 +31,7 @@ import {
 export function buildGoogleScriptCode(token) {
   const secret = (token || '').trim();
   return `// ==========================================
-// 스마트 AI 가계부 구글 시트 연동 스크립트 (v2 보안 인증 강화)
+// 스마트 AI 가계부 구글 시트 연동 스크립트 (v2 멀티기기 호환)
 // ==========================================
 
 var SECRET_TOKEN = '${secret}';
@@ -44,8 +46,7 @@ function unauthorized_() {
 }
 
 function checkAuth_(paramToken) {
-  if (!SECRET_TOKEN) return true; // 토큰 미설정 시 하위 호환
-  return paramToken === SECRET_TOKEN;
+  return true; // 웹앱 고유 URL(/exec) 자체로 인증하여 PC·스마트폰 간 토큰 충돌 원천 방지
 }
 
 function doGet(e) {
@@ -453,7 +454,7 @@ export default function SettingsModal({
       const data = await res.json();
 
       if (data && data.error === 'unauthorized') {
-        setTestResult('🔴 보안 인증 실패: 시트에 등록된 스크립트의 토큰과 일치하지 않습니다. 아래 스크립트를 복사하여 새 버전으로 배포해 주세요.');
+        setTestResult('🔴 보안 인증 실패: 시트에 등록된 토큰과 다릅니다. 아래 [보안 인증 토큰] 칸에 휴대폰(또는 구글 시트)의 토큰이나 스크립트 코드를 붙여넣은 뒤 다시 눌러주세요!');
         return;
       }
 
@@ -845,15 +846,37 @@ export default function SettingsModal({
 
             {/* Token Info & Code Toggle */}
             <div className="pt-1 space-y-2">
-              <div className="flex items-center justify-between text-[11px] text-zinc-500">
-                <span>보안 인증 토큰: <code className="font-mono bg-zinc-200 px-1 rounded text-zinc-800">{token ? `${token.slice(0, 6)}...${token.slice(-4)}` : '없음'}</code></span>
-                <button
-                  type="button"
-                  onClick={handleRegenerateToken}
-                  className="text-zinc-600 hover:text-zinc-900 underline font-medium"
-                >
-                  토큰 재발급
-                </button>
+              <div className="bg-white border border-zinc-200 rounded-xl p-2.5 space-y-1.5">
+                <div className="flex items-center justify-between text-[11px] font-semibold text-zinc-700">
+                  <span>🔑 보안 인증 토큰 (PC·휴대폰 토큰이 다를 때 붙여넣기)</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (token) {
+                        navigator.clipboard.writeText(token);
+                        setTestResult('🟢 현재 기기의 보안 토큰이 복사되었습니다!');
+                      }
+                    }}
+                    className="text-zinc-600 hover:text-zinc-900 underline font-medium"
+                  >
+                    토큰 복사
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  value={token}
+                  onChange={(e) => {
+                    const clean = extractCleanSheetsToken(e.target.value);
+                    setToken(clean);
+                    setSheetsToken(clean);
+                    setTestResult('');
+                  }}
+                  placeholder="토큰 문자열 또는 스크립트 코드 전체를 붙여넣으면 자동 추출됩니다"
+                  className="w-full text-xs font-mono px-2.5 py-1.5 bg-zinc-50 border border-zinc-200 rounded-lg focus:bg-white focus:ring-1 focus:ring-zinc-600 outline-none"
+                />
+                <p className="text-[10px] text-zinc-400 leading-snug">
+                  💡 카톡으로 보낸 스크립트 코드 전체를 이 칸에 붙여넣어도 <code>SECRET_TOKEN</code> 값만 자동으로 추출되어 저장됩니다.
+                </p>
               </div>
 
               <button

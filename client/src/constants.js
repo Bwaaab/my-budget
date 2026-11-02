@@ -279,3 +279,105 @@ export function addDeletedTxIds(ids) {
     localStorage.setItem(DELETED_TX_KEY, JSON.stringify(arr));
   } catch (_) {}
 }
+
+const AUTO_BACKUP_KEY = 'budget_auto_backup_snapshot';
+
+/**
+ * Automatically merges `budget_local_transactions` and `budget_auto_backup_snapshot`
+ * (excluding any user-deleted IDs in `budget_deleted_tx_ids`) so no local record is ever lost.
+ */
+export function getRecoveredLocalTransactions() {
+  try {
+    const deletedIds = getDeletedTxIds();
+    let localList = [];
+    try {
+      const raw = localStorage.getItem('budget_local_transactions');
+      const parsed = raw ? JSON.parse(raw) : [];
+      if (Array.isArray(parsed)) localList = parsed;
+    } catch (_) {}
+
+    let backupList = [];
+    try {
+      const rawSnap = localStorage.getItem(AUTO_BACKUP_KEY);
+      const parsedSnap = rawSnap ? JSON.parse(rawSnap) : null;
+      if (parsedSnap && Array.isArray(parsedSnap.transactions)) {
+        backupList = parsedSnap.transactions;
+      } else if (Array.isArray(parsedSnap)) {
+        backupList = parsedSnap;
+      }
+    } catch (_) {}
+
+    const seenIds = new Set();
+    const merged = [];
+    let recoveredCount = 0;
+
+    for (const item of localList) {
+      if (!item || item.id === undefined || item.id === null) continue;
+      const idStr = String(item.id);
+      if (deletedIds.has(idStr) || seenIds.has(idStr)) continue;
+      seenIds.add(idStr);
+      merged.push(item);
+    }
+
+    for (const item of backupList) {
+      if (!item || item.id === undefined || item.id === null) continue;
+      const idStr = String(item.id);
+      if (deletedIds.has(idStr) || seenIds.has(idStr)) continue;
+      seenIds.add(idStr);
+      merged.push({ ...item, synced: false });
+      recoveredCount++;
+    }
+
+    if (recoveredCount > 0) {
+      localStorage.setItem('budget_local_transactions', JSON.stringify(merged));
+    }
+
+    if (merged.length >= backupList.length && merged.length > 0) {
+      localStorage.setItem(AUTO_BACKUP_KEY, JSON.stringify({
+        savedAt: new Date().toISOString(),
+        transactions: merged
+      }));
+    }
+
+    return merged;
+  } catch (_) {
+    return [];
+  }
+}
+
+export function saveSafeAutoBackupSnapshot(list) {
+  try {
+    if (!Array.isArray(list) || list.length === 0) return;
+    const deletedIds = getDeletedTxIds();
+    let existing = [];
+    try {
+      const rawSnap = localStorage.getItem(AUTO_BACKUP_KEY);
+      const parsedSnap = rawSnap ? JSON.parse(rawSnap) : null;
+      if (parsedSnap && Array.isArray(parsedSnap.transactions)) {
+        existing = parsedSnap.transactions;
+      }
+    } catch (_) {}
+
+    const seen = new Set();
+    const union = [];
+    for (const item of list) {
+      if (!item || item.id === undefined || item.id === null) continue;
+      const idStr = String(item.id);
+      if (deletedIds.has(idStr) || seen.has(idStr)) continue;
+      seen.add(idStr);
+      union.push(item);
+    }
+    for (const item of existing) {
+      if (!item || item.id === undefined || item.id === null) continue;
+      const idStr = String(item.id);
+      if (deletedIds.has(idStr) || seen.has(idStr)) continue;
+      seen.add(idStr);
+      union.push(item);
+    }
+
+    localStorage.setItem(AUTO_BACKUP_KEY, JSON.stringify({
+      savedAt: new Date().toISOString(),
+      transactions: union
+    }));
+  } catch (_) {}
+}

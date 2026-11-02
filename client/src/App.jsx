@@ -23,7 +23,9 @@ import {
   getBudgetMonthRange,
   getActiveBudgetMonth,
   getDeletedTxIds,
-  addDeletedTxIds
+  addDeletedTxIds,
+  getRecoveredLocalTransactions,
+  saveSafeAutoBackupSnapshot
 } from './constants';
 import { getSheetsToken, setSheetsToken, ensureSheetsToken, buildSheetsGetUrl } from './sheetsAuth';
 
@@ -180,11 +182,10 @@ export default function App() {
     return getActiveBudgetMonth(new Date(), startDay);
   });
 
-  // Initialize directly from localStorage filtered by active budget month so UI is instant
+  // Initialize directly from localStorage (with automatic recovery from backup snapshot) filtered by active budget month
   const [transactions, setTransactions] = useState(() => {
     try {
-      const saved = localStorage.getItem('budget_local_transactions');
-      const list = saved ? JSON.parse(saved) : [];
+      const list = getRecoveredLocalTransactions();
       const startDay = Number(localStorage.getItem('budget_month_start_day')) || 1;
       const activeDate = getActiveBudgetMonth(new Date(), startDay);
       const range = getBudgetMonthRange(activeDate.getFullYear(), activeDate.getMonth() + 1, startDay);
@@ -224,11 +225,7 @@ export default function App() {
     const b = Number(localStorage.getItem('budget_monthly_target')) || 1200000;
     const startDay = Number(localStorage.getItem('budget_month_start_day')) || 1;
     const activeDate = getActiveBudgetMonth(new Date(), startDay);
-    let list = [];
-    try {
-      const saved = localStorage.getItem('budget_local_transactions');
-      list = saved ? JSON.parse(saved) : [];
-    } catch (_) {}
+    const list = getRecoveredLocalTransactions();
     return computeClientStats(list, activeDate.getFullYear(), activeDate.getMonth() + 1, b, startDay);
   });
 
@@ -333,15 +330,11 @@ export default function App() {
     setStats(computeClientStats(allTx, year, month, b, startDay));
   }, [transactions, year, month, settings?.monthly_budget, settings?.month_start_day, monthStartDay]);
 
-  // 1. Fetch Transactions (Merges localStorage & optional local server)
+  // 1. Fetch Transactions (Merges localStorage + auto-recovery snapshot & optional local server)
   const fetchTransactions = useCallback(async () => {
     const { year: curY, month: curM, monthStartDay: curStart } = latestPeriodRef.current;
     const hasSheets = !!(localStorage.getItem('budget_sheets_url'));
-    let localList = [];
-    try {
-      const saved = localStorage.getItem('budget_local_transactions');
-      localList = saved ? JSON.parse(saved) : [];
-    } catch (_) {}
+    const localList = getRecoveredLocalTransactions();
 
     if (!hasSheets) {
       try {
@@ -351,6 +344,7 @@ export default function App() {
           if (Array.isArray(data) && data.length > 0 && localList.length === 0) {
             setTransactions(data);
             localStorage.setItem('budget_local_transactions', JSON.stringify(data));
+            saveSafeAutoBackupSnapshot(data);
             return;
           }
         }
@@ -368,11 +362,7 @@ export default function App() {
   // 2. Fetch Stats
   const fetchStats = useCallback(async () => {
     const { year: curY, month: curM, monthStartDay: curStart } = latestPeriodRef.current;
-    let localList = [];
-    try {
-      const saved = localStorage.getItem('budget_local_transactions');
-      localList = saved ? JSON.parse(saved) : [];
-    } catch (_) {}
+    const localList = getRecoveredLocalTransactions();
     const b = Number(localStorage.getItem('budget_monthly_target')) || Number(settings?.monthly_budget) || 1200000;
     const startDay = Number(curStart) || Number(settings?.month_start_day) || 1;
     setStats(computeClientStats(localList, curY, curM, b, startDay));
@@ -526,7 +516,7 @@ export default function App() {
           }
         }
 
-        // 2. Transactions — Smart Merge (Never wipes out unsynced local entries)
+        // 2. Transactions — True Union Merge (Never wipes out ANY non-deleted local or auto-backup entries)
         if (Array.isArray(data.transactions)) {
           const deletedIds = getDeletedTxIds();
           const sheetTx = data.transactions
@@ -544,45 +534,61 @@ export default function App() {
               };
             });
 
-          let prevLocal = [];
-          try {
-            const rawLocal = localStorage.getItem('budget_local_transactions');
-            prevLocal = rawLocal ? JSON.parse(rawLocal) : [];
-          } catch (_) {}
+          // Automatically includes both budget_local_transactions AND budget_auto_backup_snapshot
+          const prevLocal = getRecoveredLocalTransactions();
 
           const sheetIdSet = new Set(sheetTx.map(t => String(t.id)));
-          const unsyncedLocal = prevLocal.filter(item => {
-            if (!item || !item.id) return false;
-            const idStr = String(item.id);
-            if (sheetIdSet.has(idStr) || deletedIds.has(idStr)) return false;
-            return item.synced === false;
-          });
+          const unsyncedLocal = prevLocal
+            .filter(item => {
+              if (!item || item.id === undefined || item.id === null) return false;
+              const idStr = String(item.id);
+              // Keep EVERY local/backup transaction that wasn't deleted and isn't on the sheet yet
+              return !sheetIdSet.has(idStr) && !deletedIds.has(idStr);
+            })
+            .map(t => {
+              const saving = isSavingTx(t);
+              return {
+                ...t,
+                type: saving ? 'saving' : (t.type || 'expense'),
+                category: saving ? '저축/투자' : (t.category || '기타'),
+                necessity: saving ? undefined : (t.necessity || getNecessity(t)),
+                date: normalizeDateYMD(t.date),
+                time: normalizeTimeHM(t.time),
+                synced: false
+              };
+            });
 
-          // Automatic safety snapshot before any reduction in transaction count
-          if (prevLocal.length > sheetTx.length + unsyncedLocal.length) {
-            localStorage.setItem('budget_auto_backup_snapshot', JSON.stringify({
-              savedAt: new Date().toISOString(),
-              transactions: prevLocal
-            }));
-          }
+          const mergedTx = [...unsyncedLocal, ...sheetTx];
+          localStorage.setItem('budget_local_transactions', JSON.stringify(mergedTx));
+          saveSafeAutoBackupSnapshot(mergedTx);
 
-          // Push any unsynced local records to Google Sheets
+          // Push any missing local/recovered records to Google Sheets automatically
           if (unsyncedLocal.length > 0) {
-            for (const item of unsyncedLocal) {
-              postToGoogleSheets(sheetsUrl, { action: 'add_transaction', ...item }).then((ok) => {
+            if (unsyncedLocal.length <= 2) {
+              for (const item of unsyncedLocal) {
+                postToGoogleSheets(sheetsUrl, { action: 'add_transaction', ...item }).then((ok) => {
+                  if (ok) {
+                    try {
+                      const cur = JSON.parse(localStorage.getItem('budget_local_transactions') || '[]');
+                      const updated = cur.map(x => String(x.id) === String(item.id) ? { ...x, synced: true } : x);
+                      localStorage.setItem('budget_local_transactions', JSON.stringify(updated));
+                    } catch (_) {}
+                  }
+                });
+              }
+            } else {
+              // Batch upload all merged transactions in 1 fast atomic request
+              postToGoogleSheets(sheetsUrl, { action: 'sync_transactions', transactions: mergedTx }).then((ok) => {
                 if (ok) {
                   try {
                     const cur = JSON.parse(localStorage.getItem('budget_local_transactions') || '[]');
-                    const updated = cur.map(x => String(x.id) === String(item.id) ? { ...x, synced: true } : x);
+                    const updated = cur.map(x => ({ ...x, synced: true }));
                     localStorage.setItem('budget_local_transactions', JSON.stringify(updated));
                   } catch (_) {}
                 }
               });
             }
           }
-
-          const mergedTx = [...unsyncedLocal, ...sheetTx];
-          localStorage.setItem('budget_local_transactions', JSON.stringify(mergedTx));
 
           const { year: curY, month: curM, monthStartDay: curStart } = latestPeriodRef.current;
           const range = getBudgetMonthRange(curY, curM, curStart);
@@ -861,6 +867,7 @@ export default function App() {
       list.unshift(txWithId);
     }
     localStorage.setItem('budget_local_transactions', JSON.stringify(list));
+    saveSafeAutoBackupSnapshot(list);
 
     const parts = cleanDate.split('-').map(Number);
     const txYear = parts[0];

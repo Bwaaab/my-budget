@@ -10,10 +10,36 @@ export function getSheetsToken() {
 }
 
 /**
+ * Extract clean token whether user pastes raw token, full Apps Script code, or QR URL
+ */
+export function extractCleanSheetsToken(rawInput) {
+  const str = String(rawInput || '').trim();
+  if (!str) return '';
+
+  // 1. Check if full Apps Script code was pasted: var SECRET_TOKEN = '...';
+  const scriptMatch = str.match(/SECRET_TOKEN\s*=\s*['"]([^'"]*)['"]/);
+  if (scriptMatch && scriptMatch[1]) {
+    return scriptMatch[1].trim();
+  }
+
+  // 2. Check if URL with #...token=... or ?token=... was pasted
+  const urlMatch = str.match(/[?&#]token=([^&#\s]+)/);
+  if (urlMatch && urlMatch[1]) {
+    try {
+      return decodeURIComponent(urlMatch[1]).trim();
+    } catch (_) {
+      return urlMatch[1].trim();
+    }
+  }
+
+  return str;
+}
+
+/**
  * Set security token in localStorage
  */
 export function setSheetsToken(token) {
-  const clean = (token || '').trim();
+  const clean = extractCleanSheetsToken(token);
   if (clean) {
     localStorage.setItem(TOKEN_KEY, clean);
   } else {
