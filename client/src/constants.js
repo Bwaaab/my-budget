@@ -230,3 +230,52 @@ export function getBudgetMonthRange(year, month, startDay = 1) {
     days,
   };
 }
+
+/**
+ * 주어진 날짜(date)가 설정된 시작일(startDay) 기준으로 어느 가계부 월(연, 월)에 속하는지 반환
+ * 예: 2026-11-02에 startDay가 11이면 -> 2026년 10월(new Date(2026, 9, 1)) 반환
+ */
+export function getActiveBudgetMonth(date = new Date(), startDay = 1) {
+  const cleanDay = Math.max(1, Math.min(31, Number(startDay) || 1));
+  const y = date.getFullYear();
+  const m = date.getMonth(); // 0-indexed (10월 = 9, 11월 = 10)
+  const d = date.getDate();
+
+  if (cleanDay === 1) {
+    return new Date(y, m, 1);
+  }
+
+  // 해당 월의 실제 마지막 날을 고려한 시작일
+  const daysInThisMonth = new Date(y, m + 1, 0).getDate();
+  const actualStartDay = Math.min(cleanDay, daysInThisMonth);
+
+  // 오늘 일자가 이번 달 시작일보다 이전이면 -> 이전 달 주기에 속함!
+  if (d < actualStartDay) {
+    return new Date(y, m - 1, 1);
+  }
+  return new Date(y, m, 1);
+}
+
+const DELETED_TX_KEY = 'budget_deleted_tx_ids';
+
+export function getDeletedTxIds() {
+  try {
+    const raw = localStorage.getItem(DELETED_TX_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    return new Set(( Array.isArray(arr) ? arr : [] ).map(id => String(id)));
+  } catch (_) {
+    return new Set();
+  }
+}
+
+export function addDeletedTxIds(ids) {
+  try {
+    const set = getDeletedTxIds();
+    const list = Array.isArray(ids) ? ids : [ids];
+    for (const id of list) {
+      if (id !== undefined && id !== null) set.add(String(id));
+    }
+    const arr = Array.from(set).slice(-500);
+    localStorage.setItem(DELETED_TX_KEY, JSON.stringify(arr));
+  } catch (_) {}
+}

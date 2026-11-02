@@ -18,7 +18,7 @@ import {
   Trash2,
   AlertTriangle
 } from 'lucide-react';
-import { formatKRW } from '../constants';
+import { formatKRW, addDeletedTxIds, getActiveBudgetMonth, getBudgetMonthRange } from '../constants';
 import {
   getSheetsToken,
   ensureSheetsToken,
@@ -618,6 +618,7 @@ export default function SettingsModal({
     } catch (_) {}
 
     const idsToDeleteArray = Array.from(selectedCleanupIds);
+    addDeletedTxIds(idsToDeleteArray);
     const remaining = list.filter(item => !selectedCleanupIds.has(item.id));
     localStorage.setItem('budget_local_transactions', JSON.stringify(remaining));
 
@@ -658,11 +659,59 @@ export default function SettingsModal({
   };
 
   const handleExportCsv = () => {
-    window.location.href = '/api/export-csv';
+    try {
+      const saved = localStorage.getItem('budget_local_transactions');
+      const list = saved ? JSON.parse(saved) : [];
+      const headers = ['ID', '날짜', '유형', '금액', '카테고리', '결제수단', '가맹점/내역', '메모'];
+      const escapeCsv = (val) => `"${String(val ?? '').replace(/"/g, '""')}"`;
+      const rows = list.map(t => [
+        escapeCsv(t.id),
+        escapeCsv(t.date),
+        escapeCsv(t.type === 'income' ? '수입' : '지출'),
+        escapeCsv(t.amount),
+        escapeCsv(t.category),
+        escapeCsv(t.payment_method),
+        escapeCsv(t.merchant),
+        escapeCsv(t.memo)
+      ].join(','));
+      const csvContent = '\uFEFF' + [headers.join(','), ...rows].join('\r\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `가계부_내역_${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (_) {
+      window.location.href = '/api/export-csv';
+    }
   };
 
   const handleExportBackup = () => {
-    window.location.href = '/api/backup';
+    try {
+      const transactions = JSON.parse(localStorage.getItem('budget_local_transactions') || '[]');
+      const wishlist = JSON.parse(localStorage.getItem('budget_wishlist') || '[]');
+      const backupData = {
+        exported_at: new Date().toISOString(),
+        monthly_target: Number(localStorage.getItem('budget_monthly_target')) || 0,
+        month_start_day: Number(localStorage.getItem('budget_month_start_day')) || 1,
+        transactions,
+        wishlist
+      };
+      const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `가계부_백업_${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (_) {
+      window.location.href = '/api/backup';
+    }
   };
 
   const handleRestoreFile = async (e) => {
@@ -672,16 +721,36 @@ export default function SettingsModal({
     try {
       const text = await file.text();
       const json = JSON.parse(text);
+      const txList = Array.isArray(json.transactions)
+        ? json.transactions
+        : Array.isArray(json)
+          ? json
+          : null;
 
-      const res = await fetch('/api/restore', {
+      if (!txList) throw new Error('복원 실패');
+
+      const normalized = txList.map(t => ({ ...t, synced: false }));
+      localStorage.setItem('budget_local_transactions', JSON.stringify(normalized));
+
+      if (Array.isArray(json.wishlist)) {
+        localStorage.setItem('budget_wishlist', JSON.stringify(json.wishlist));
+      }
+      if (json.monthly_target !== undefined) {
+        localStorage.setItem('budget_monthly_target', String(json.monthly_target));
+      }
+      if (json.month_start_day !== undefined) {
+        localStorage.setItem('budget_month_start_day', String(json.month_start_day));
+      }
+
+      // Optional local server sync if running locally
+      fetch('/api/restore', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(json)
-      });
+      }).catch(() => {});
 
-      if (!res.ok) throw new Error('복원 실패');
-      setRestoreStatus(`성공적으로 ${json.transactions?.length || 0}건 복원 완료!`);
-      onRefreshData();
+      setRestoreStatus(`성공적으로 ${normalized.length}건 복원 완료!`);
+      if (onRefreshData) onRefreshData();
       setTimeout(() => setRestoreStatus(''), 3000);
     } catch (err) {
       alert('백업 파일 형식이 올바르지 않습니다.');
@@ -978,22 +1047,27 @@ export default function SettingsModal({
             </div>
 
             {/* Period Preview Info Box */}
-            <div className="p-2.5 bg-zinc-50 border border-zinc-200/80 rounded-xl text-xs text-zinc-600 space-y-1">
-              <div className="flex items-center gap-1.5 font-semibold text-zinc-800">
-                <span>🗓️ 집계 기간 안내</span>
-              </div>
-              <div className="text-[11px] text-zinc-500 leading-relaxed">
-                {Number(startDay) === 1 ? (
-                  <>10월 가계부는 <strong>10월 1일 ~ 10월 말일</strong>까지의 내역을 합산합니다.</>
-                ) : Number(startDay) === 31 ? (
-                  <>10월 가계부는 <strong>10월 말일(31일) ~ 11월 29일</strong>까지 집계되며, 30일/28일로 끝나는 달에는 각 달의 말일로 자동 보정됩니다.</>
-                ) : (
-                  <>
-                    10월 가계부는 <strong>10월 {startDay || 1}일 ~ 11월 {Math.max(1, (Number(startDay) || 1) - 1)}일</strong>까지의 내역을 합산합니다.
-                  </>
-                )}
-              </div>
-            </div>
+            {(() => {
+              const previewDay = Math.min(31, Math.max(1, Number(startDay) || 1));
+              const activeDate = getActiveBudgetMonth(new Date(), previewDay);
+              const activeY = activeDate.getFullYear();
+              const activeM = activeDate.getMonth() + 1;
+              const { startDate, endDate } = getBudgetMonthRange(activeY, activeM, previewDay);
+              return (
+                <div className="p-2.5 bg-zinc-50 border border-zinc-200/80 rounded-xl text-xs text-zinc-600 space-y-1">
+                  <div className="flex items-center justify-between gap-1.5 font-semibold text-zinc-800">
+                    <span>🗓️ 집계 기간 안내</span>
+                    <span className="text-[11px] font-bold text-zinc-700 bg-white border border-zinc-200 px-2 py-0.5 rounded-md">
+                      현재 적용: {activeY}년 {activeM}월
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-zinc-500 leading-relaxed">
+                    오늘 기준으로 <strong>{activeM}월 가계부({startDate} ~ {endDate})</strong>가 기본 표시됩니다.
+                    {previewDay === 31 && ' (30일/28일로 끝나는 달은 각 달의 말일로 자동 보정)'}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
 
           {/* Save Button */}
