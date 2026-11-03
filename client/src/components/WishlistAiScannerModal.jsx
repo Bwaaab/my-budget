@@ -13,17 +13,7 @@ import {
   Eye,
   EyeOff
 } from 'lucide-react';
-import { formatKRW, todayYMD, nowHM } from '../constants';
-
-const WISHLIST_CATEGORIES = [
-  '전자기기',
-  '패션/잡화',
-  '생활용품',
-  '취미/문화',
-  '도서/강의',
-  '쇼핑',
-  '기타'
-];
+import { formatKRW, todayYMD, nowHM, WISHLIST_CATEGORIES } from '../constants';
 
 // Compress & resize image on client (max 768px, JPEG 0.80)
 // Why 768px? Gemini Vision processes <=768px images as a SINGLE 258-token tile (vs 6x tokens for >768px),
@@ -142,8 +132,8 @@ async function getOrderedAvailableModels(cleanKey) {
 
 async function analyzeWishlistWithGemini(base64Data, mimeType, apiKey) {
   const cleanKey = (apiKey || '').trim();
-  const prompt = `쇼핑몰 상품 캡처에서 아래 JSON만 즉시 출력하세요:
-{"title":"브랜드+상품명","price":숫자,"category":"전자기기|패션/잡화|생활용품|취미/문화|도서/강의|쇼핑|기타","priority":4,"link":"","memo":"쇼핑몰/옵션 한줄요약"}`;
+  const prompt = `쇼핑몰 상품 또는 음식/식품 캡처에서 아래 JSON만 즉시 출력하세요:
+{"title":"브랜드+상품/음식명","price":숫자,"category":"먹고 싶은 거|전자기기|패션/잡화|생활용품|취미/문화|도서/강의|쇼핑|기타","priority":4,"link":"","memo":"쇼핑몰/배달앱/옵션 한줄요약"}`;
 
   const models = await getOrderedAvailableModels(cleanKey);
 
@@ -305,10 +295,16 @@ export default function WishlistAiScannerModal({
           if (res.ok) {
             const d = await res.json();
             if (d.extracted && !d.requiresKey) {
+              let detectedCategory = '쇼핑';
+              if (d.extracted.category === '식비' || d.extracted.category === '카페/간식') {
+                detectedCategory = '먹고 싶은 거';
+              } else if (WISHLIST_CATEGORIES.includes(d.extracted.category)) {
+                detectedCategory = d.extracted.category;
+              }
               serverExtracted = {
                 title: d.extracted.merchant || '',
                 price: d.extracted.amount || '',
-                category: WISHLIST_CATEGORIES.includes(d.extracted.category) ? d.extracted.category : '쇼핑',
+                category: detectedCategory,
                 priority: 4,
                 link: '',
                 memo: d.extracted.memo || ''

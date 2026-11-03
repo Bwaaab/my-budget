@@ -12,7 +12,7 @@ import {
   Edit2,
   RefreshCw
 } from 'lucide-react';
-import { formatKRW, formatShortDate, normalizeDateYMD, todayYMD, nowHM } from '../constants';
+import { formatKRW, formatShortDate, normalizeDateYMD, todayYMD, nowHM, WISHLIST_CATEGORIES } from '../constants';
 
 export default function Wishlist({
   items: externalItems,
@@ -151,11 +151,21 @@ export default function Wishlist({
     if (confirm(`'${item.title}'을(를) 구매 완료 처리하고 이번 달 가계부 지출에 등록할까요?`)) {
       updateItems(items.map(i => i.id === item.id ? { ...i, status: 'purchased' } : i));
       if (onConvertToExpense) {
+        let expenseCategory = item.category || '쇼핑';
+        if (item.category === '먹고 싶은 거') {
+          expenseCategory = '식비';
+        } else if (item.category === '생활용품') {
+          expenseCategory = '마트/생필품';
+        } else if (item.category === '취미/문화' || item.category === '도서/강의') {
+          expenseCategory = '문화/여가';
+        } else if (!['식비', '카페/간식', '마트/생필품', '교통', '쇼핑', '문화/여가', '의료/건강', '주거/통신', '기타'].includes(item.category)) {
+          expenseCategory = '쇼핑';
+        }
         onConvertToExpense({
           type: 'expense',
           amount: item.price,
           merchant: item.title,
-          category: item.category || '쇼핑',
+          category: expenseCategory,
           date: todayYMD(),
           time: nowHM(),
           payment_method: '카드',
@@ -464,12 +474,11 @@ export default function Wishlist({
                     onChange={(e) => setFormData({ ...formData, category: e.target.value })}
                     className="w-full text-xs px-2.5 py-1.5 bg-zinc-50 border border-zinc-200 rounded-xl outline-none"
                   >
-                    <option value="전자기기">전자기기</option>
-                    <option value="패션/잡화">패션/잡화</option>
-                    <option value="생활용품">생활용품</option>
-                    <option value="취미/문화">취미/문화</option>
-                    <option value="도서/강의">도서/강의</option>
-                    <option value="기타">기타</option>
+                    {WISHLIST_CATEGORIES.map((cat) => (
+                      <option key={cat} value={cat}>
+                        {cat}
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <div>

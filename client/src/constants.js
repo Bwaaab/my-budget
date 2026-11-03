@@ -24,6 +24,17 @@ export const PAYMENT_METHODS = [
   '기타'
 ];
 
+export const WISHLIST_CATEGORIES = [
+  '먹고 싶은 거',
+  '전자기기',
+  '패션/잡화',
+  '생활용품',
+  '취미/문화',
+  '도서/강의',
+  '쇼핑',
+  '기타'
+];
+
 // Modern, muted, calm aesthetic palette
 export const CATEGORY_COLORS = {
   '식비': '#e2e8f0',
