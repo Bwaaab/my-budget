@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Check, Trash2 } from 'lucide-react';
-import { CATEGORIES, PAYMENT_METHODS, formatKRW, isSavingTx, getNecessity, cleanNumber, normalizeDateYMD, normalizeTimeHM, todayYMD, nowHM } from '../constants';
+import { CATEGORIES, PAYMENT_METHODS, formatKRW, isSavingTx, getNecessity, cleanNumber, normalizeDateYMD, normalizeTimeHM, todayYMD, nowHM, getMerchantFieldInfo } from '../constants';
 
 export default function TransactionModal({
   isOpen,
@@ -10,6 +10,7 @@ export default function TransactionModal({
   initialData
 }) {
   const isEditing = !!(initialData && initialData.id);
+  const merchantField = getMerchantFieldInfo(formData.type);
 
   const [formData, setFormData] = useState({
     type: 'expense',
@@ -121,7 +122,7 @@ export default function TransactionModal({
               }
               className={`flex-1 py-1.5 rounded-lg transition whitespace-nowrap ${
                 formData.type === 'saving'
-                  ? 'bg-indigo-600 text-white shadow-xs'
+                  ? 'bg-zinc-900 text-white shadow-xs'
                   : 'text-zinc-600'
               }`}
             >
@@ -206,12 +207,12 @@ export default function TransactionModal({
           {/* Merchant */}
           <div>
             <label className="block text-xs font-semibold text-zinc-700 mb-1">
-              상호 / 사용처
+              {merchantField.label}
             </label>
             <input
               type="text"
               required
-              placeholder="예: 김밥천국, 스타벅스, 이마트"
+              placeholder={merchantField.placeholder}
               value={formData.merchant}
               onChange={(e) => setFormData({ ...formData, merchant: e.target.value })}
               className="w-full text-xs sm:text-sm px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-zinc-900 outline-none transition"

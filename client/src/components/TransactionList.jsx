@@ -118,7 +118,7 @@ export default function TransactionList({
                 setFilterNecessity('all');
               }}
               className={`px-2.5 py-1 rounded-lg transition whitespace-nowrap ${
-                filterType === 'saving' ? 'bg-white text-indigo-700 shadow-xs' : 'text-zinc-500 hover:text-zinc-900'
+                filterType === 'saving' ? 'bg-white text-zinc-900 shadow-xs' : 'text-zinc-500 hover:text-zinc-900'
               }`}
             >
               저축
@@ -230,7 +230,7 @@ export default function TransactionList({
                       <span className="text-zinc-600 whitespace-nowrap">지출 -{formatKRW(group.dayExpense)}</span>
                     )}
                     {group.daySaving > 0 && (
-                      <span className="text-indigo-600 font-bold whitespace-nowrap">저축 {formatKRW(group.daySaving)}</span>
+                      <span className="text-zinc-800 font-bold whitespace-nowrap">저축 {formatKRW(group.daySaving)}</span>
                     )}
                     {group.dayIncome > 0 && (
                       <span className="text-zinc-800 font-bold whitespace-nowrap">수입 +{formatKRW(group.dayIncome)}</span>
@@ -303,17 +303,15 @@ export default function TransactionList({
                         <div className="flex items-center gap-1.5 sm:gap-2.5 flex-shrink-0">
                           <div className="text-right whitespace-nowrap">
                             {isSavingTx(t) ? (
-                              <span className="inline-flex items-center gap-1 text-xs sm:text-sm font-bold tracking-tight text-indigo-700 whitespace-nowrap">
-                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 font-bold whitespace-nowrap">
+                              <span className="inline-flex items-center gap-1 text-xs sm:text-sm font-bold tracking-tight text-zinc-900 whitespace-nowrap">
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-800 font-bold border border-zinc-200 whitespace-nowrap">
                                   저축
                                 </span>
                                 {formatKRW(t.amount)}
                               </span>
                             ) : (
                               <span
-                                className={`text-xs sm:text-sm font-bold tracking-tight whitespace-nowrap ${
-                                  t.type === 'expense' ? 'text-zinc-900' : 'text-emerald-700'
-                                }`}
+                                className="text-xs sm:text-sm font-bold tracking-tight whitespace-nowrap text-zinc-900"
                               >
                                 {t.type === 'expense' ? `-${formatKRW(t.amount)}` : `+${formatKRW(t.amount)}`}
                               </span>

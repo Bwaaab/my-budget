@@ -2,14 +2,14 @@ export const CATEGORIES = [
   { id: '식비', name: '식비', icon: 'Utensils', color: 'bg-zinc-100 text-zinc-700 border-zinc-200' },
   { id: '카페/간식', name: '카페/간식', icon: 'Coffee', color: 'bg-stone-100 text-stone-700 border-stone-200' },
   { id: '마트/생필품', name: '마트/생필품', icon: 'ShoppingCart', color: 'bg-slate-100 text-slate-700 border-slate-200' },
-  { id: '교통', name: '교통', icon: 'Car', color: 'bg-blue-50 text-blue-800 border-blue-100' },
+  { id: '교통', name: '교통', icon: 'Car', color: 'bg-stone-100 text-stone-700 border-stone-200' },
   { id: '쇼핑', name: '쇼핑', icon: 'ShoppingBag', color: 'bg-zinc-100 text-zinc-700 border-zinc-200' },
   { id: '문화/여가', name: '문화/여가', icon: 'Film', color: 'bg-slate-100 text-slate-700 border-slate-200' },
-  { id: '의료/건강', name: '의료/건강', icon: 'HeartPulse', color: 'bg-rose-50 text-rose-800 border-rose-100' },
+  { id: '의료/건강', name: '의료/건강', icon: 'HeartPulse', color: 'bg-slate-100 text-slate-700 border-slate-200' },
   { id: '주거/통신', name: '주거/통신', icon: 'Home', color: 'bg-stone-100 text-stone-700 border-stone-200' },
   { id: '금융/보험', name: '금융/보험', icon: 'Landmark', color: 'bg-zinc-100 text-zinc-700 border-zinc-200' },
-  { id: '저축/투자', name: '저축/투자', icon: 'PiggyBank', color: 'bg-indigo-50 text-indigo-800 border-indigo-100' },
-  { id: '급여', name: '급여', icon: 'Coins', color: 'bg-emerald-50 text-emerald-800 border-emerald-100' },
+  { id: '저축/투자', name: '저축/투자', icon: 'PiggyBank', color: 'bg-zinc-100 text-zinc-700 border-zinc-200' },
+  { id: '급여', name: '급여', icon: 'Coins', color: 'bg-zinc-100 text-zinc-700 border-zinc-200' },
   { id: '기타', name: '기타', icon: 'MoreHorizontal', color: 'bg-zinc-100 text-zinc-600 border-zinc-200' }
 ];
 
@@ -43,13 +43,32 @@ export const CATEGORY_COLORS = {
   '교통': '#64748b',
   '쇼핑': '#475569',
   '문화/여가': '#334155',
-  '의료/건강': '#f43f5e',
+  '의료/건강': '#64748b',
   '주거/통신': '#64748b',
   '금융/보험': '#1e293b',
-  '저축/투자': '#4f46e5',
-  '급여': '#10b981',
+  '저축/투자': '#18181b',
+  '급여': '#27272a',
   '기타': '#94a3b8'
 };
+
+export function getMerchantFieldInfo(type) {
+  if (type === 'saving') {
+    return {
+      label: '저축·투자처 / 상품명',
+      placeholder: '예: 토스증권 S&P500, 청약저축, 카카오뱅크 26주적금'
+    };
+  }
+  if (type === 'income') {
+    return {
+      label: '수입처 / 입금원',
+      placeholder: '예: 회사 급여, 상여금, 당근마켓 판매, 배당금'
+    };
+  }
+  return {
+    label: '상호 / 사용처',
+    placeholder: '예: 김밥천국, 스타벅스, 이마트, 쿠팡'
+  };
+}
 
 export function isSavingTx(t) {
   if (!t) return false;

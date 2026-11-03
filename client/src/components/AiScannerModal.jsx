@@ -12,7 +12,7 @@ import {
   Eye,
   EyeOff
 } from 'lucide-react';
-import { CATEGORIES, PAYMENT_METHODS, formatKRW, getNecessity, cleanNumber, normalizeDateYMD, normalizeTimeHM, todayYMD, nowHM } from '../constants';
+import { CATEGORIES, PAYMENT_METHODS, formatKRW, getNecessity, cleanNumber, normalizeDateYMD, normalizeTimeHM, todayYMD, nowHM, getMerchantFieldInfo } from '../constants';
 
 const createEmptyAiFormData = () => ({
   type: 'expense',
@@ -257,6 +257,7 @@ export default function AiScannerModal({
 
   // Extracted/Edited form state
   const [formData, setFormData] = useState(createEmptyAiFormData);
+  const merchantField = getMerchantFieldInfo(formData.type);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const fileInputRef = useRef(null);
@@ -523,18 +524,18 @@ export default function AiScannerModal({
             <div
               onDragOver={(e) => e.preventDefault()}
               onDrop={handleDrop}
-              className="border-2 border-dashed border-indigo-200 rounded-3xl p-8 text-center hover:border-indigo-400 hover:bg-indigo-50/20 transition-all cursor-pointer flex flex-col items-center justify-center space-y-3"
+              className="border-2 border-dashed border-zinc-300 rounded-3xl p-8 text-center hover:border-zinc-500 hover:bg-zinc-50/50 transition-all cursor-pointer flex flex-col items-center justify-center space-y-3"
               onClick={() => fileInputRef.current?.click()}
             >
-              <div className="w-16 h-16 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+              <div className="w-16 h-16 rounded-2xl bg-zinc-100 text-zinc-900 border border-zinc-200 flex items-center justify-center">
                 <Upload className="w-8 h-8" />
               </div>
               <div>
-                <h4 className="text-sm sm:text-base font-bold text-slate-800">
+                <h4 className="text-sm sm:text-base font-bold text-zinc-800">
                   캡처본이나 영수증 이미지를 여기에 올려주세요
                 </h4>
-                <p className="text-xs text-slate-400 mt-1">
-                  또는 화면 어디서든 <kbd className="px-1.5 py-0.5 bg-slate-100 rounded text-slate-600 font-semibold border">Ctrl+V</kbd> 로 붙여넣으세요
+                <p className="text-xs text-zinc-400 mt-1">
+                  또는 화면 어디서든 <kbd className="px-1.5 py-0.5 bg-zinc-100 rounded text-zinc-600 font-semibold border border-zinc-200">Ctrl+V</kbd> 로 붙여넣으세요
                 </p>
               </div>
 
@@ -543,7 +544,7 @@ export default function AiScannerModal({
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
-                  className="px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-xs transition flex items-center gap-1.5"
+                  className="px-4 py-2 text-xs font-semibold text-white bg-zinc-900 hover:bg-black rounded-xl shadow-xs transition flex items-center gap-1.5"
                 >
                   <Upload className="w-4 h-4" />
                   파일 선택
@@ -551,9 +552,9 @@ export default function AiScannerModal({
                 <button
                   type="button"
                   onClick={() => cameraInputRef.current?.click()}
-                  className="px-4 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition flex items-center gap-1.5"
+                  className="px-4 py-2 text-xs font-semibold text-zinc-700 bg-zinc-100 hover:bg-zinc-200 rounded-xl transition flex items-center gap-1.5"
                 >
-                  <Camera className="w-4 h-4 text-indigo-600" />
+                  <Camera className="w-4 h-4 text-zinc-700" />
                   카메라 촬영
                 </button>
               </div>
@@ -590,10 +591,10 @@ export default function AiScannerModal({
 
                 {/* Laser Scanning Animation when analyzing */}
                 {isAnalyzing && (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-indigo-950/70">
-                    <div className="w-full h-1 bg-gradient-to-r from-transparent via-cyan-400 to-transparent absolute animate-bounce" />
-                    <div className="bg-slate-900/80 text-white px-4 py-2 rounded-xl text-xs font-medium flex items-center gap-2 shadow-lg border border-slate-700">
-                      <Sparkles className="w-4 h-4 text-yellow-300 animate-spin" />
+                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-zinc-950/80">
+                    <div className="w-full h-0.5 bg-gradient-to-r from-transparent via-white to-transparent absolute animate-bounce" />
+                    <div className="bg-zinc-900/90 text-white px-4 py-2 rounded-xl text-xs font-medium flex items-center gap-2 shadow-lg border border-zinc-700">
+                      <Sparkles className="w-4 h-4 text-zinc-300 animate-spin" />
                       <span>AI가 정보를 정밀 분석하고 있습니다...</span>
                     </div>
                   </div>
@@ -603,7 +604,7 @@ export default function AiScannerModal({
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
-                  className="absolute bottom-2 right-2 bg-slate-900/80 hover:bg-slate-900 text-white text-xs px-2.5 py-1.5 rounded-lg flex items-center gap-1 border border-slate-700 shadow transition"
+                  className="absolute bottom-2 right-2 bg-zinc-900/80 hover:bg-zinc-900 text-white text-xs px-2.5 py-1.5 rounded-lg flex items-center gap-1 border border-zinc-700 shadow transition"
                 >
                   <RotateCcw className="w-3 h-3" />
                   다른 사진 선택
@@ -620,7 +621,7 @@ export default function AiScannerModal({
                 )}
 
                 {/* Type Selection */}
-                <div className="flex bg-slate-100 rounded-xl p-1 text-xs font-semibold">
+                <div className="flex bg-zinc-100 rounded-xl p-1 text-xs font-semibold">
                   <button
                     type="button"
                     onClick={() =>
@@ -632,8 +633,8 @@ export default function AiScannerModal({
                     }
                     className={`flex-1 py-1.5 rounded-lg transition whitespace-nowrap ${
                       formData.type === 'expense'
-                        ? 'bg-rose-500 text-white shadow-xs'
-                        : 'text-slate-600'
+                        ? 'bg-zinc-900 text-white shadow-xs'
+                        : 'text-zinc-600'
                     }`}
                   >
                     지출
@@ -650,8 +651,8 @@ export default function AiScannerModal({
                     }
                     className={`flex-1 py-1.5 rounded-lg transition whitespace-nowrap ${
                       formData.type === 'saving'
-                        ? 'bg-indigo-600 text-white shadow-xs'
-                        : 'text-slate-600'
+                        ? 'bg-zinc-900 text-white shadow-xs'
+                        : 'text-zinc-600'
                     }`}
                   >
                     저축 · 투자
@@ -667,8 +668,8 @@ export default function AiScannerModal({
                     }
                     className={`flex-1 py-1.5 rounded-lg transition whitespace-nowrap ${
                       formData.type === 'income'
-                        ? 'bg-emerald-600 text-white shadow-xs'
-                        : 'text-slate-600'
+                        ? 'bg-zinc-900 text-white shadow-xs'
+                        : 'text-zinc-600'
                     }`}
                   >
                     수입
@@ -724,9 +725,9 @@ export default function AiScannerModal({
                       placeholder="0"
                       value={formData.amount}
                       onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
-                      className="w-full text-lg sm:text-xl font-extrabold px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none transition"
+                      className="w-full text-lg sm:text-xl font-extrabold px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-zinc-900 outline-none transition"
                     />
-                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-slate-400">
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-zinc-400">
                       {formData.amount ? formatKRW(formData.amount) : '원'}
                     </span>
                   </div>
@@ -734,23 +735,23 @@ export default function AiScannerModal({
 
                 {/* Merchant / Store */}
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    상호 / 사용처
+                  <label className="block text-xs font-semibold text-zinc-700 mb-1">
+                    {merchantField.label}
                   </label>
                   <input
                     type="text"
                     required
-                    placeholder="예: 스타벅스 강남점, 배달의민족, GS25"
+                    placeholder={merchantField.placeholder}
                     value={formData.merchant}
                     onChange={(e) => setFormData({ ...formData, merchant: e.target.value })}
-                    className="w-full text-xs sm:text-sm px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none transition"
+                    className="w-full text-xs sm:text-sm px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-zinc-900 outline-none transition"
                   />
                 </div>
 
                 {/* Date & Time */}
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    <label className="block text-xs font-semibold text-zinc-700 mb-1">
                       결제 일자
                     </label>
                     <input
@@ -758,28 +759,28 @@ export default function AiScannerModal({
                       required
                       value={formData.date}
                       onChange={(e) => setFormData({ ...formData, date: e.target.value })}
-                      className="w-full text-xs px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white outline-none"
+                      className="w-full text-xs px-2.5 py-1.5 bg-zinc-50 border border-zinc-200 rounded-xl focus:bg-white outline-none"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    <label className="block text-xs font-semibold text-zinc-700 mb-1">
                       시간
                     </label>
                     <input
                       type="time"
                       value={formData.time}
                       onChange={(e) => setFormData({ ...formData, time: e.target.value })}
-                      className="w-full text-xs px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white outline-none"
+                      className="w-full text-xs px-2.5 py-1.5 bg-zinc-50 border border-zinc-200 rounded-xl focus:bg-white outline-none"
                     />
                   </div>
                 </div>
 
                 {/* Category Chips */}
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  <label className="block text-xs font-semibold text-zinc-700 mb-1">
                     카테고리
                   </label>
-                  <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto p-1 bg-slate-50 rounded-xl border border-slate-100">
+                  <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto p-1 bg-zinc-50 rounded-xl border border-zinc-100">
                     {CATEGORIES.map((cat) => (
                       <button
                         key={cat.id}
@@ -798,8 +799,8 @@ export default function AiScannerModal({
                         }
                         className={`text-[11px] px-2.5 py-1 rounded-lg font-medium transition whitespace-nowrap ${
                           formData.category === cat.name
-                            ? 'bg-indigo-600 text-white shadow-xs font-bold'
-                            : 'bg-white text-slate-600 hover:bg-slate-200/60 border border-slate-200/50'
+                            ? 'bg-zinc-900 text-white shadow-xs font-bold'
+                            : 'bg-white text-zinc-600 hover:bg-zinc-100 border border-zinc-200/50'
                         }`}
                       >
                         {cat.name}
