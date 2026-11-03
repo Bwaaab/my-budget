@@ -9,7 +9,9 @@ import {
   Key,
   ShoppingBag,
   RotateCcw,
-  Star
+  Star,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import { formatKRW, todayYMD, nowHM } from '../constants';
 
@@ -232,8 +234,10 @@ export default function WishlistAiScannerModal({
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [requiresKey, setRequiresKey] = useState(false);
-  const [inputKey, setInputKey] = useState('');
+  const [inputKey, setInputKey] = useState(() => localStorage.getItem('budget_gemini_key') || '');
+  const [showInputKey, setShowInputKey] = useState(false);
   const [isSavingKey, setIsSavingKey] = useState(false);
+  const [savedKeySuccess, setSavedKeySuccess] = useState(false);
 
   const [formData, setFormData] = useState({
     title: '',
@@ -363,15 +367,18 @@ export default function WishlistAiScannerModal({
   };
 
   const handleSaveApiKeyInline = async () => {
-    if (!inputKey.trim()) return;
+    const cleanKey = inputKey.trim();
+    if (!cleanKey) return;
     setIsSavingKey(true);
+    setErrorMsg('');
     try {
+      localStorage.setItem('budget_gemini_key', cleanKey);
       if (onSaveApiKey) {
-        await onSaveApiKey(inputKey.trim());
-      } else {
-        localStorage.setItem('budget_gemini_key', inputKey.trim());
+        await onSaveApiKey(cleanKey);
       }
       setRequiresKey(false);
+      setSavedKeySuccess(true);
+      setTimeout(() => setSavedKeySuccess(false), 3000);
       if (file) {
         processFile(file);
       }
@@ -449,19 +456,35 @@ export default function WishlistAiScannerModal({
                     💡 무료 Gemini API 키를 등록하면 쇼핑몰 캡처 AI 인식이 즉시 작동합니다!
                   </p>
                   <div className="flex flex-col sm:flex-row gap-2 pt-1">
-                    <input
-                      type="password"
-                      placeholder="AIzaSy... 형태의 Gemini API 키 붙여넣기"
-                      value={inputKey}
-                      onChange={(e) => setInputKey(e.target.value)}
-                      className="flex-1 px-3 py-1.5 bg-white rounded-xl border border-zinc-300 text-xs outline-none focus:ring-1 focus:ring-zinc-900"
-                    />
+                    <div className="relative flex-1">
+                      <input
+                        type={showInputKey ? 'text' : 'password'}
+                        placeholder="AIzaSy... 형태의 Gemini API 키 붙여넣기"
+                        value={inputKey}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setInputKey(val);
+                          if (val.trim()) {
+                            localStorage.setItem('budget_gemini_key', val.trim());
+                          }
+                        }}
+                        className="w-full pl-3 pr-8 py-1.5 bg-white rounded-xl border border-zinc-300 text-xs outline-none focus:ring-1 focus:ring-zinc-900 font-mono"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowInputKey(!showInputKey)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-700 p-1 rounded"
+                        title={showInputKey ? '키 가리기' : '키 보기'}
+                      >
+                        {showInputKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
                     <div className="flex gap-1.5">
                       <button
                         type="button"
                         onClick={handleSaveApiKeyInline}
                         disabled={isSavingKey || !inputKey.trim()}
-                        className="px-3 py-1.5 bg-zinc-900 hover:bg-zinc-800 disabled:opacity-50 text-white font-semibold text-xs rounded-xl transition"
+                        className="px-3 py-1.5 bg-zinc-900 hover:bg-zinc-800 disabled:opacity-50 text-white font-semibold text-xs rounded-xl transition cursor-pointer"
                       >
                         {isSavingKey ? '저장 중...' : '키 저장 & 분석'}
                       </button>
@@ -475,6 +498,12 @@ export default function WishlistAiScannerModal({
                       </a>
                     </div>
                   </div>
+                  {savedKeySuccess && (
+                    <div className="text-[11px] text-emerald-700 font-medium flex items-center gap-1 pt-1">
+                      <Check className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>API 키가 안전하게 저장되었습니다! 이제 상품 캡처본을 업로드해 주세요.</span>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

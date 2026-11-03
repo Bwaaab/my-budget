@@ -8,7 +8,9 @@ import {
   AlertCircle,
   Key,
   Receipt,
-  RotateCcw
+  RotateCcw,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import { CATEGORIES, PAYMENT_METHODS, formatKRW, getNecessity, cleanNumber, normalizeDateYMD, normalizeTimeHM, todayYMD, nowHM } from '../constants';
 
@@ -248,8 +250,10 @@ export default function AiScannerModal({
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [requiresKey, setRequiresKey] = useState(false);
-  const [inputKey, setInputKey] = useState('');
+  const [inputKey, setInputKey] = useState(() => localStorage.getItem('budget_gemini_key') || '');
+  const [showInputKey, setShowInputKey] = useState(false);
   const [isSavingKey, setIsSavingKey] = useState(false);
+  const [savedKeySuccess, setSavedKeySuccess] = useState(false);
 
   // Extracted/Edited form state
   const [formData, setFormData] = useState(createEmptyAiFormData);
@@ -374,12 +378,17 @@ export default function AiScannerModal({
   };
 
   const handleSaveApiKeyInline = async () => {
-    if (!inputKey.trim()) return;
+    const cleanKey = inputKey.trim();
+    if (!cleanKey) return;
     setIsSavingKey(true);
+    setErrorMsg('');
     try {
-      await onSaveApiKey(inputKey.trim());
+      localStorage.setItem('budget_gemini_key', cleanKey);
+      await onSaveApiKey(cleanKey);
       setRequiresKey(false);
-      // Re-analyze with newly configured key
+      setSavedKeySuccess(true);
+      setTimeout(() => setSavedKeySuccess(false), 3000);
+      // Re-analyze with newly configured key if a file is already loaded
       if (file) {
         processFile(file);
       }
@@ -443,7 +452,7 @@ export default function AiScannerModal({
         {/* Modal Body */}
         <div className="p-5 overflow-y-auto flex-1 space-y-4">
           {/* Missing API Key Guidance Banner */}
-          {(!hasApiKey || requiresKey) && (
+          {((!hasApiKey && !localStorage.getItem('budget_gemini_key')) || requiresKey) && (
             <div className="p-3.5 bg-amber-50 rounded-2xl border border-amber-200/80 text-amber-900 text-xs sm:text-sm">
               <div className="flex items-start gap-2.5">
                 <Key className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
@@ -455,18 +464,35 @@ export default function AiScannerModal({
                     신용카드사 결제 알림 문자, 토스/카카오페이 송금증, 영수증 캡처본을 정밀 분석합니다. (완전 무료)
                   </p>
                   <div className="flex flex-col sm:flex-row gap-2 pt-1">
-                    <input
-                      type="password"
-                      placeholder="AI Studio에서 발급받은 Gemini API 키 붙여넣기"
-                      value={inputKey}
-                      onChange={(e) => setInputKey(e.target.value)}
-                      className="flex-1 px-3 py-1.5 bg-white rounded-xl border border-amber-300 text-xs outline-none focus:ring-2 focus:ring-amber-500"
-                    />
-                    <div className="flex gap-1.5">
+                    <div className="relative flex-1">
+                      <input
+                        type={showInputKey ? 'text' : 'password'}
+                        placeholder="AI Studio에서 발급받은 Gemini API 키 붙여넣기"
+                        value={inputKey}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setInputKey(val);
+                          if (val.trim()) {
+                            localStorage.setItem('budget_gemini_key', val.trim());
+                          }
+                        }}
+                        className="w-full pl-3 pr-8 py-1.5 bg-white rounded-xl border border-amber-300 text-xs outline-none focus:ring-2 focus:ring-amber-500 font-mono"
+                      />
                       <button
+                        type="button"
+                        onClick={() => setShowInputKey(!showInputKey)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-700 p-1 rounded"
+                        title={showInputKey ? '키 가리기' : '키 보기'}
+                      >
+                        {showInputKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
+                    <div className="flex gap-1.5 flex-shrink-0">
+                      <button
+                        type="button"
                         onClick={handleSaveApiKeyInline}
                         disabled={isSavingKey || !inputKey.trim()}
-                        className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white font-medium text-xs rounded-xl shadow-xs transition"
+                        className="px-3 py-1.5 bg-zinc-900 hover:bg-zinc-800 disabled:opacity-50 text-white font-medium text-xs rounded-xl shadow-xs transition cursor-pointer"
                       >
                         {isSavingKey ? '저장 중...' : '키 저장 & 인식'}
                       </button>
@@ -480,6 +506,13 @@ export default function AiScannerModal({
                       </a>
                     </div>
                   </div>
+
+                  {savedKeySuccess && (
+                    <div className="text-[11px] text-emerald-800 font-medium flex items-center gap-1 pt-1">
+                      <Check className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>API 키가 안전하게 저장되었습니다! 이제 영수증을 올려주세요.</span>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

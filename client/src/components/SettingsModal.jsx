@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   X,
   Key,
@@ -16,7 +16,9 @@ import {
   RefreshCw,
   ShieldAlert,
   Trash2,
-  AlertTriangle
+  AlertTriangle,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import { formatKRW, addDeletedTxIds, getActiveBudgetMonth, getBudgetMonthRange } from '../constants';
 import {
@@ -338,7 +340,9 @@ export default function SettingsModal({
   onRefreshData,
   onSyncGoogleSheets
 }) {
-  const [apiKey, setApiKey] = useState('');
+  const [apiKey, setApiKey] = useState(() => localStorage.getItem('budget_gemini_key') || settings?.gemini_api_key || '');
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [keyValidationStatus, setKeyValidationStatus] = useState(''); // '', 'validating', 'success', 'error'
   const [budget, setBudget] = useState('1200000');
   const [startDay, setStartDay] = useState(1);
   const [googleSheetsUrl, setGoogleSheetsUrl] = useState('');
@@ -356,9 +360,13 @@ export default function SettingsModal({
   const [selectedCleanupIds, setSelectedCleanupIds] = useState(new Set());
   const [cleanupMessage, setCleanupMessage] = useState('');
 
+  const prevIsOpenRef = useRef(false);
+
   useEffect(() => {
-    if (isOpen) {
-      const savedKey = settings?.gemini_api_key || localStorage.getItem('budget_gemini_key') || '';
+    // ONLY re-initialize values when the modal transitions from closed to OPEN.
+    // This prevents background syncs or parent re-renders from wiping out user's unsaved typing!
+    if (isOpen && !prevIsOpenRef.current) {
+      const savedKey = localStorage.getItem('budget_gemini_key') || settings?.gemini_api_key || '';
       const savedBudget = Number(localStorage.getItem('budget_monthly_target')) || settings?.monthly_budget || 1200000;
       const savedStartDay = Number(settings?.month_start_day) || Number(monthStartDay) || Number(localStorage.getItem('budget_month_start_day')) || 1;
       const savedUrl = localStorage.getItem('budget_sheets_url') || settings?.google_sheets_url || '';
@@ -371,8 +379,48 @@ export default function SettingsModal({
       setToken(savedToken);
       setTestResult('');
       setShowCleanup(false);
+      setKeyValidationStatus('');
     }
-  }, [isOpen, settings, monthStartDay]);
+    prevIsOpenRef.current = isOpen;
+  }, [isOpen, settings?.gemini_api_key, settings?.monthly_budget, settings?.month_start_day, settings?.google_sheets_url, monthStartDay]);
+
+  const handleSaveAndVerifyApiKey = async () => {
+    const cleanKey = apiKey.trim();
+    if (!cleanKey) {
+      setKeyValidationStatus('error: 키를 입력해 주세요.');
+      return;
+    }
+
+    setKeyValidationStatus('validating');
+
+    try {
+      // 1. Immediately persist to localStorage so it never vanishes
+      localStorage.setItem('budget_gemini_key', cleanKey);
+
+      // 2. Validate with Google Gemini API
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(cleanKey)}`);
+      if (!res.ok) {
+        if (res.status === 400 || res.status === 403) {
+          throw new Error('API 키가 올바르지 않거나 권한이 없습니다. (AI Studio 키 확인)');
+        } else if (res.status !== 429) {
+          throw new Error(`AI 서버 응답 오류 (${res.status})`);
+        }
+      }
+
+      // 3. Update app settings & push to sheet if connected
+      await onSaveSettings({
+        gemini_api_key: cleanKey,
+        monthly_budget: Number(budget) || 1200000,
+        google_sheets_url: googleSheetsUrl.trim(),
+        month_start_day: Number(startDay) || 1
+      });
+
+      setKeyValidationStatus('success');
+      setTimeout(() => setKeyValidationStatus(''), 4000);
+    } catch (err) {
+      setKeyValidationStatus(`error: ${err.message || '인증 실패'}`);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -934,17 +982,65 @@ export default function SettingsModal({
               </a>
             </div>
 
-            <input
-              type="password"
-              placeholder="AIzaSy... 형태의 키 입력"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              className="w-full text-xs px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl focus:bg-white focus:ring-1 focus:ring-zinc-600 outline-none"
-            />
-            {settings?.hasApiKey && (
+            <div className="flex gap-1.5">
+              <div className="relative flex-1">
+                <input
+                  type={showApiKey ? 'text' : 'password'}
+                  placeholder="AIzaSy... 형태의 키 입력"
+                  value={apiKey}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setApiKey(val);
+                    if (val.trim()) {
+                      localStorage.setItem('budget_gemini_key', val.trim());
+                    }
+                  }}
+                  className="w-full text-xs px-3 py-2 pr-9 bg-zinc-50 border border-zinc-200 rounded-xl focus:bg-white focus:ring-1 focus:ring-zinc-600 outline-none font-mono"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowApiKey(!showApiKey)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-700 p-1 rounded"
+                  title={showApiKey ? '키 가리기' : '키 보기'}
+                >
+                  {showApiKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={handleSaveAndVerifyApiKey}
+                disabled={keyValidationStatus === 'validating'}
+                className="px-3 py-2 bg-zinc-900 hover:bg-zinc-800 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center gap-1 whitespace-nowrap flex-shrink-0 cursor-pointer"
+              >
+                {keyValidationStatus === 'validating' ? (
+                  <>
+                    <RefreshCw className="w-3 h-3 animate-spin" />
+                    <span>확인 중</span>
+                  </>
+                ) : (
+                  <span>키 저장</span>
+                )}
+              </button>
+            </div>
+
+            {keyValidationStatus === 'success' && (
+              <div className="text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 animate-fade-in">
+                <Check className="w-3.5 h-3.5 flex-shrink-0" />
+                <span>API 키가 정상 인증되었으며 브라우저에 안전하게 저장되었습니다!</span>
+              </div>
+            )}
+
+            {keyValidationStatus.startsWith('error:') && (
+              <div className="text-[11px] text-rose-700 bg-rose-50 border border-rose-200 px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 animate-fade-in">
+                <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
+                <span>{keyValidationStatus.replace('error:', '').trim()}</span>
+              </div>
+            )}
+
+            {(settings?.hasApiKey || localStorage.getItem('budget_gemini_key')) && !keyValidationStatus && (
               <div className="text-[11px] text-zinc-500 flex items-center gap-1">
-                <ShieldCheck className="w-3.5 h-3.5 text-zinc-700" />
-                <span>API 키 등록 완료 (클라이언트에만 안전 보관)</span>
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                <span>API 키 등록 완료 (내 기기 브라우저에 안전 보관)</span>
               </div>
             )}
           </div>

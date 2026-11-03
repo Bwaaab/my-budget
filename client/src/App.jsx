@@ -614,9 +614,20 @@ export default function App() {
 
         const sheetApiKey = (data.settings?.gemini_api_key || embeddedConfig?.gemini_api_key || '').trim();
         const localApiKey = (localStorage.getItem('budget_gemini_key') || '').trim();
-        const finalApiKey = (sheetApiKey && !sheetApiKey.includes('...')) ? sheetApiKey : localApiKey;
+        // Local device key takes priority so shared sheets never overwrite or wipe out user's newly entered key!
+        const finalApiKey = localApiKey || (sheetApiKey && !sheetApiKey.includes('...') ? sheetApiKey : '');
         if (finalApiKey) {
           localStorage.setItem('budget_gemini_key', finalApiKey);
+        }
+
+        // If local device has an API key that differs from sheet, push it to sheet
+        if (localApiKey && localApiKey !== sheetApiKey && (!sheetApiKey || !sheetApiKey.includes('...'))) {
+          postToGoogleSheets(sheetsUrl, {
+            action: 'update_budget',
+            monthly_budget: finalBudget,
+            gemini_api_key: localApiKey,
+            month_start_day: finalStartDay
+          });
         }
 
         if (overrideLocalBudget && Number(overrideLocalBudget) !== 1200000) {
@@ -977,8 +988,13 @@ export default function App() {
       : (Number(localStorage.getItem('budget_month_start_day')) || settings?.month_start_day || 1);
 
     // Always persist to localstorage first
-    if (newSettings.gemini_api_key) {
-      localStorage.setItem('budget_gemini_key', newSettings.gemini_api_key.trim());
+    if (newSettings.gemini_api_key !== undefined) {
+      const cleanKey = newSettings.gemini_api_key.trim();
+      if (cleanKey) {
+        localStorage.setItem('budget_gemini_key', cleanKey);
+      } else {
+        localStorage.removeItem('budget_gemini_key');
+      }
     }
     if (newSettings.google_sheets_url !== undefined) {
       localStorage.setItem('budget_sheets_url', cleanSheetsUrl);
