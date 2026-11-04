@@ -10,7 +10,6 @@ export default function TransactionModal({
   initialData
 }) {
   const isEditing = !!(initialData && initialData.id);
-  const merchantField = getMerchantFieldInfo(formData.type);
 
   const [formData, setFormData] = useState({
     type: 'expense',
@@ -23,6 +22,7 @@ export default function TransactionModal({
     payment_method: '신용카드',
     memo: ''
   });
+  const merchantField = getMerchantFieldInfo(formData.type);
 
   useEffect(() => {
     if (initialData) {
