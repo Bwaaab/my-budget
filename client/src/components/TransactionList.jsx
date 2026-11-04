@@ -249,7 +249,7 @@ export default function TransactionList({
                       >
                         {/* Left: Icon & Info */}
                         <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                          <CategoryIcon category={t.category} />
+                          <CategoryIcon category={t.category} inverted={t.type === 'income'} />
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-1.5 min-w-0">
                               <span className="text-xs sm:text-sm font-semibold text-zinc-900 truncate">
@@ -311,7 +311,9 @@ export default function TransactionList({
                               </span>
                             ) : (
                               <span
-                                className="text-xs sm:text-sm font-bold tracking-tight whitespace-nowrap text-zinc-900"
+                                className={`text-xs sm:text-sm font-bold tracking-tight whitespace-nowrap ${
+                                  t.type === 'expense' ? 'text-red-600' : 'text-emerald-600'
+                                }`}
                               >
                                 {t.type === 'expense' ? `-${formatKRW(t.amount)}` : `+${formatKRW(t.amount)}`}
                               </span>
