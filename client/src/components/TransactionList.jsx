@@ -312,7 +312,7 @@ export default function TransactionList({
                             ) : (
                               <span
                                 className={`text-xs sm:text-sm font-bold tracking-tight whitespace-nowrap ${
-                                  t.type === 'expense' ? 'text-red-600' : 'text-emerald-600'
+                                  t.type === 'expense' ? 'text-red-800' : 'text-emerald-600'
                                 }`}
                               >
                                 {t.type === 'expense' ? `-${formatKRW(t.amount)}` : `+${formatKRW(t.amount)}`}
