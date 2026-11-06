@@ -11,6 +11,7 @@ import SettingsModal from './components/SettingsModal';
 import ReceiptViewerModal from './components/ReceiptViewerModal';
 import MobileBottomNav from './components/MobileBottomNav';
 import Wishlist from './components/Wishlist';
+import PointWalletModal from './components/PointWalletModal';
 import { Sparkles, UploadCloud, Smartphone, Wallet, Heart } from 'lucide-react';
 import {
   normalizeDateYMD,
@@ -25,7 +26,10 @@ import {
   getDeletedTxIds,
   addDeletedTxIds,
   getRecoveredLocalTransactions,
-  saveSafeAutoBackupSnapshot
+  saveSafeAutoBackupSnapshot,
+  getLocalPointTransactions,
+  setLocalPointTransactions,
+  computePointStats
 } from './constants';
 import { getSheetsToken, setSheetsToken, ensureSheetsToken, buildSheetsGetUrl } from './sheetsAuth';
 
@@ -247,11 +251,25 @@ export default function App() {
   const [isTxModalOpen, setIsTxModalOpen] = useState(false);
   const [isQrModalOpen, setIsQrModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const [isPointModalOpen, setIsPointModalOpen] = useState(false);
   const [viewingReceiptPath, setViewingReceiptPath] = useState('');
   const [editingTx, setEditingTx] = useState(null);
   const [initialFileForScanner, setInitialFileForScanner] = useState(null);
   const [initialFileForWishlistScanner, setInitialFileForWishlistScanner] = useState(null);
   const [currentView, setCurrentView] = useState('budget'); // 'budget' | 'wishlist'
+
+  // Point Wallet State
+  const [pointTransactions, setPointTransactions] = useState(() => {
+    return getLocalPointTransactions();
+  });
+  const [selectedPointProvider, setSelectedPointProvider] = useState('네이버페이');
+
+  const pointStats = computePointStats(
+    pointTransactions,
+    selectedPointProvider,
+    currentDate.getFullYear(),
+    currentDate.getMonth() + 1
+  );
 
   const [activeMobileTab, setActiveMobileTab] = useState('overview');
   const [isDraggingOver, setIsDraggingOver] = useState(false);
@@ -432,6 +450,67 @@ export default function App() {
         setNetworkInfo(data);
       }
     } catch (_) {}
+  }, []);
+
+  // 5. Fetch Points (Hybrid: backend SQLite or LocalStorage)
+  const fetchPoints = useCallback(async () => {
+    try {
+      if (!window.location.hostname.includes('github.io')) {
+        const res = await fetch('/api/points');
+        if (res.ok) {
+          const list = await res.json();
+          if (Array.isArray(list)) {
+            setPointTransactions(list);
+            setLocalPointTransactions(list);
+            return;
+          }
+        }
+      }
+    } catch (_) {}
+    const local = getLocalPointTransactions();
+    setPointTransactions(local);
+  }, []);
+
+  // Point Transaction Handlers
+  const handleSavePoint = useCallback(async (newPoint) => {
+    const pointWithId = {
+      ...newPoint,
+      id: newPoint.id || Date.now() + Math.floor(Math.random() * 1000)
+    };
+    setPointTransactions(prev => {
+      const next = [pointWithId, ...prev.filter(p => p.id !== pointWithId.id)];
+      setLocalPointTransactions(next);
+      return next;
+    });
+
+    if (!window.location.hostname.includes('github.io')) {
+      try {
+        await fetch('/api/points', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(pointWithId)
+        });
+      } catch (_) {}
+    }
+
+    const typeLabel = pointWithId.type === 'earn' ? '적립' : pointWithId.type === 'use' ? '사용' : '잔액조정';
+    showToast(`🅿️ ${pointWithId.provider} 포인트 ${typeLabel} (${formatKRW(pointWithId.amount).replace('원', '')}P) 완료!`);
+  }, []);
+
+  const handleDeletePoint = useCallback(async (id) => {
+    setPointTransactions(prev => {
+      const next = prev.filter(p => p.id !== id);
+      setLocalPointTransactions(next);
+      return next;
+    });
+
+    if (!window.location.hostname.includes('github.io')) {
+      try {
+        await fetch(`/api/points/${id}`, { method: 'DELETE' });
+      } catch (_) {}
+    }
+
+    showToast('포인트 내역이 삭제되었습니다.');
   }, []);
 
   // Google Sheets Full Sync (Smart Merge: Preserves unsynced local records + syncs Wishlist & Settings)
@@ -735,6 +814,7 @@ export default function App() {
     fetchStats();
     fetchSettings();
     fetchNetworkInfo();
+    fetchPoints();
 
     const activeSheet = (incomingSheet || localStorage.getItem('budget_sheets_url') || '').trim();
     if (activeSheet && !activeSheet.includes('/macros/library/')) {
@@ -1122,6 +1202,7 @@ export default function App() {
           setEditingTx(null);
           setIsTxModalOpen(true);
         }}
+        onOpenPointWallet={() => setIsPointModalOpen(true)}
         onOpenQrModal={() => setIsQrModalOpen(true)}
         onOpenSettingsModal={() => setIsSettingsModalOpen(true)}
         onSyncGoogleSheets={() => handleSyncGoogleSheets()}
@@ -1249,6 +1330,8 @@ export default function App() {
             {/* 1. Monthly Overview Cards */}
             <SummaryCards
               stats={stats}
+              pointStats={pointStats}
+              onOpenPointWallet={() => setIsPointModalOpen(true)}
               onOpenBudgetEdit={() => setIsSettingsModalOpen(true)}
             />
 
@@ -1287,9 +1370,22 @@ export default function App() {
           setInitialFileForScanner(null);
         }}
         onSaveTransaction={handleSaveTransaction}
+        onSavePointTransaction={handleSavePoint}
         hasApiKey={settings?.hasApiKey}
         onSaveApiKey={(key) => handleSaveSettings({ gemini_api_key: key })}
         initialFile={initialFileForScanner}
+      />
+
+      <PointWalletModal
+        isOpen={isPointModalOpen}
+        onClose={() => setIsPointModalOpen(false)}
+        points={pointTransactions}
+        pointStats={pointStats}
+        selectedProvider={selectedPointProvider}
+        onChangeProvider={setSelectedPointProvider}
+        onSavePoint={handleSavePoint}
+        onDeletePoint={handleDeletePoint}
+        onSaveTransaction={handleSaveTransaction}
       />
 
       <WishlistAiScannerModal

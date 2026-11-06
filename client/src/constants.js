@@ -16,13 +16,23 @@ export const CATEGORIES = [
 export const PAYMENT_METHODS = [
   '신용카드',
   '체크카드',
+  '네이버페이',
+  '네이버페이(포인트)',
   '카카오페이',
   '토스페이',
-  '네이버페이',
   '계좌이체',
   '현금',
   '기타'
 ];
+
+export const POINT_PROVIDERS = [
+  { id: '네이버페이', name: '네이버페이', unit: 'P', color: '#03c75a', bg: 'bg-[#03c75a]' },
+  { id: '카카오페이', name: '카카오페이', unit: 'P', color: '#fee500', bg: 'bg-[#fee500]' },
+  { id: '토스', name: '토스', unit: 'P', color: '#0064ff', bg: 'bg-[#0064ff]' },
+  { id: '기타', name: '기타', unit: 'P', color: '#71717a', bg: 'bg-zinc-500' }
+];
+
+export const POINT_STORAGE_KEY = 'budget_point_transactions';
 
 export const WISHLIST_CATEGORIES = [
   '먹고 싶은 거',
@@ -410,4 +420,62 @@ export function saveSafeAutoBackupSnapshot(list) {
       transactions: union
     }));
   } catch (_) {}
+}
+
+export function getLocalPointTransactions() {
+  try {
+    const raw = localStorage.getItem(POINT_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+export function setLocalPointTransactions(list) {
+  try {
+    localStorage.setItem(POINT_STORAGE_KEY, JSON.stringify(list || []));
+  } catch (_) {}
+}
+
+export function computePointStats(pointList, provider = '네이버페이', year, month) {
+  const allPoints = Array.isArray(pointList) ? pointList : [];
+  const targetProvider = provider || '네이버페이';
+  const filteredByProvider = allPoints.filter(p => !targetProvider || targetProvider === 'all' || p.provider === targetProvider);
+
+  let totalEarned = 0;
+  let totalUsed = 0;
+  let totalAdjust = 0;
+
+  for (const p of filteredByProvider) {
+    const amt = cleanNumber(p.amount);
+    if (p.type === 'earn') totalEarned += amt;
+    else if (p.type === 'use') totalUsed += amt;
+    else if (p.type === 'adjust') totalAdjust += amt;
+  }
+
+  const currentBalance = totalEarned + totalAdjust - totalUsed;
+
+  const monthStr = month ? String(month).padStart(2, '0') : '';
+  const monthPattern = year && month ? `${year}-${monthStr}` : '';
+
+  let monthlyEarned = 0;
+  let monthlyUsed = 0;
+
+  for (const p of filteredByProvider) {
+    const d = normalizeDateYMD(p.date);
+    if (!monthPattern || d.startsWith(monthPattern)) {
+      const amt = cleanNumber(p.amount);
+      if (p.type === 'earn') monthlyEarned += amt;
+      else if (p.type === 'use') monthlyUsed += amt;
+    }
+  }
+
+  return {
+    provider: targetProvider,
+    currentBalance,
+    totalEarned,
+    totalUsed,
+    monthlyEarned,
+    monthlyUsed
+  };
 }

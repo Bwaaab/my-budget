@@ -90,6 +90,7 @@ D:\budget\
             ├── ReceiptViewerModal.jsx    # 등록된 영수증 원본 이미지 확대 뷰어 모달
             ├── QrCodeModal.jsx           # 스마트폰 PWA 접속용 로컬 네트워크 접속 QR 모달
             ├── SettingsModal.jsx         # 월 예산 설정, Gemini API 키, 구글 시트 연동 URL/토큰 설정 모달
+            ├── PointWalletModal.jsx      # 네이버페이 등 포인트 지갑 관리 모달 (적립/사용/잔액조정, 가계부 지출 연동)
             ├── Wishlist.jsx              # 위시리스트 관리 탭 (사고 싶은 물건 목록, 쿨다운 타이머, 예산 대비 구매 평가)
             ├── WishlistAiScannerModal.jsx# 상품 이미지/캡처를 분석하여 위시리스트 품목/가격 자동 추출 모달
             ├── CategoryIcon.jsx          # 카테고리별 아이콘 매핑 렌더러
@@ -119,7 +120,21 @@ D:\budget\
 | `items_json` | TEXT | '[]' | 영수증 세부 품목 목록 (JSON 배열) |
 | `created_at` | DATETIME| CURRENT_TIMESTAMP| 등록 일시 |
 
-### 2) `settings` (시스템 및 사용자 환경설정)
+### 2) `point_transactions` (포인트 적립/사용 내역 테이블)
+| 컬럼명 | 타입 | 기본값 | 설명 |
+|---|---|---|---|
+| `id` | INTEGER | PK AUTOINCREMENT | 고유 식별자 |
+| `provider` | TEXT | '네이버페이' | 포인트 제공사 (`네이버페이`, `카카오페이`, `토스`, `기타`) |
+| `type` | TEXT | 'earn' | 구분 (`earn`: 적립, `use`: 사용, `adjust`: 잔액조정) |
+| `amount` | INTEGER | NOT NULL | 포인트 금액 (정수형) |
+| `title` | TEXT | NOT NULL | 적립처/사용처/사유 (예: 네이버쇼핑 리뷰, 결제 사용) |
+| `date` | TEXT | NOT NULL | 일자 (`YYYY-MM-DD`) |
+| `time` | TEXT | '' | 시간 (`HH:mm`) |
+| `memo` | TEXT | '' | 부가 메모 |
+| `linked_tx_id`| INTEGER | NULL | 연계된 일반 거래 ID |
+| `created_at` | DATETIME| CURRENT_TIMESTAMP| 등록 일시 |
+
+### 3) `settings` (시스템 및 사용자 환경설정)
 | 키(`key`) | 기본값 | 설명 |
 |---|---|---|
 | `monthly_budget` | `1200000` | 월 권장 지출 예산 (원) |
@@ -137,6 +152,11 @@ D:\budget\
 - `PUT /api/transactions/:id` : 거래 내역 수정
 - `DELETE /api/transactions/:id` : 거래 내역 삭제 (연계된 영수증 파일 안전 삭제)
 - `POST /api/transactions/bulk-sync` : 구글 시트 및 모바일 내역 일괄 병합 동기화
+- `GET /api/points` : 포인트 내역 목록 조회 (필터: provider, year, month)
+- `POST /api/points` : 포인트 적립/사용/조정 신규 등록
+- `PUT /api/points/:id` : 포인트 내역 수정
+- `DELETE /api/points/:id` : 포인트 내역 삭제
+- `GET /api/points/summary` : 포인트별 현재 보유 잔액 및 당월 적립/사용 집계
 - `GET /api/stats` : 지정 연/월 통계 (총 수입/지출/저축, 카테고리별 비율, 일별 추이)
 - `GET /api/settings` / `POST /api/settings` : 환경설정 조회 및 업데이트
 - `POST /api/ai/scan-receipt` : 영수증/결제 캡처 이미지 업로드 및 Gemini Vision OCR 수행

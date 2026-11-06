@@ -48,6 +48,8 @@ async function recognizeReceiptOrCapture(imageBuffer, mimeType = 'image/jpeg', a
 8. memo: 주요 품목이나 간단한 메모 (예: "아메리카노 외 1건", "점심 식사", "생필품 구매" 등).
 9. items: 영수증에 개별 품목 목록이 보일 경우 [{ "name": "품목명", "price": 금액(숫자), "count": 수량(숫자) }] 형태로 추출 (없으면 빈 배열 []).
 10. raw_summary: 전체 요약 1문장 (예: "스타벅스 강남점에서 신한카드로 12,500원 결제")
+11. earned_point: 영수증이나 결제 캡처 화면에 "N원 적립", "네이버페이 포인트 N원 적립 완료", "포인트 N원 적립" 등의 적립 혜택 문구가 보일 경우 적립 포인트 금액을 쉼표 없는 정수 숫자로 추출 (없으면 0).
+12. used_point: 화면에 네이버페이 포인트 등 "포인트 사용 N원" 문구가 보일 경우 사용한 포인트 금액을 쉼표 없는 정수 숫자로 추출 (없으면 0).
 
 반드시 마크다운 코드블록(\`\`\`json) 없이 순수 JSON 객체만 반환하세요.
 `;
@@ -127,7 +129,9 @@ async function recognizeReceiptOrCapture(imageBuffer, mimeType = 'image/jpeg', a
           payment_method: parsed.payment_method || '카드',
           memo: parsed.memo || '',
           items: Array.isArray(parsed.items) ? parsed.items : [],
-          raw_summary: parsed.raw_summary || ''
+          raw_summary: parsed.raw_summary || '',
+          earned_point: typeof parsed.earned_point === 'number' ? Math.max(0, Math.round(parsed.earned_point)) : (Number(String(parsed.earned_point || '').replace(/[^0-9]/g, '')) || 0),
+          used_point: typeof parsed.used_point === 'number' ? Math.max(0, Math.round(parsed.used_point)) : (Number(String(parsed.used_point || '').replace(/[^0-9]/g, '')) || 0)
         }
       };
     } catch (err) {

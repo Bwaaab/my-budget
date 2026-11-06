@@ -158,9 +158,10 @@ async function analyzeDirectWithGemini(base64Data, mimeType, apiKey) {
 6. category: "식비"|"카페/간식"|"마트/생필품"|"교통"|"문화/여가"|"쇼핑"|"의료/건강"|"주거/통신"|"저축/투자"|"급여"|"기타".
 7. payment_method: "카드"|"이체"|"현금" 등.
 8. memo: 핵심 품목 또는 간단 요약.
+9. earned_point: 화면 하단이나 영수증에 "N원 적립", "네이버페이 포인트 N원 적립 완료" 등의 적립 혜택 문구가 보일 경우 적립 포인트 숫자 (없으면 0).
 
 출력 JSON 형식만 반환하세요:
-{"type":"expense","necessity":"need","amount":숫자,"merchant":"상호명","date":"${currentYear}-MM-DD","time":"HH:mm","category":"식비","payment_method":"카드","memo":"품목"}`;
+{"type":"expense","necessity":"need","amount":숫자,"merchant":"상호명","date":"${currentYear}-MM-DD","time":"HH:mm","category":"식비","payment_method":"카드","memo":"품목","earned_point":0}`;
 
   const models = await getOrderedAvailableModels(cleanKey);
 
@@ -241,6 +242,7 @@ export default function AiScannerModal({
   isOpen,
   onClose,
   onSaveTransaction,
+  onSavePointTransaction,
   hasApiKey,
   onSaveApiKey,
   initialFile
@@ -254,6 +256,10 @@ export default function AiScannerModal({
   const [showInputKey, setShowInputKey] = useState(false);
   const [isSavingKey, setIsSavingKey] = useState(false);
   const [savedKeySuccess, setSavedKeySuccess] = useState(false);
+
+  // Point bonus detection
+  const [detectedEarnedPoint, setDetectedEarnedPoint] = useState(0);
+  const [recordPointSync, setRecordPointSync] = useState(true);
 
   // Extracted/Edited form state
   const [formData, setFormData] = useState(createEmptyAiFormData);
@@ -279,6 +285,8 @@ export default function AiScannerModal({
       setErrorMsg('');
       setRequiresKey(false);
       setIsSubmitting(false);
+      setDetectedEarnedPoint(0);
+      setRecordPointSync(true);
       setFormData(createEmptyAiFormData());
     }
   }, [isOpen]);
@@ -342,6 +350,10 @@ export default function AiScannerModal({
         const cleanAmt = cleanNumber(data.extracted.amount);
         const cleanDate = normalizeDateYMD(data.extracted.date);
         const cleanTime = normalizeTimeHM(data.extracted.time) || new Date().toTimeString().slice(0, 5);
+        const detectedBonus = cleanNumber(data.extracted.earned_point);
+
+        setDetectedEarnedPoint(detectedBonus);
+        setRecordPointSync(detectedBonus > 0);
 
         setFormData({
           type: isSaving ? 'saving' : data.extracted.type || 'expense',
@@ -414,13 +426,30 @@ export default function AiScannerModal({
 
     setIsSubmitting(true);
     try {
+      const savedDate = normalizeDateYMD(formData.date) || todayYMD();
+      const savedTime = normalizeTimeHM(formData.time) || nowHM();
+
       onSaveTransaction({
         ...formData,
         amount: cleanAmt,
         merchant: cleanMerchant,
-        date: normalizeDateYMD(formData.date),
-        time: normalizeTimeHM(formData.time) || nowHM()
+        date: savedDate,
+        time: savedTime
       });
+
+      // Synchronously record detected point bonus if toggled
+      if (recordPointSync && detectedEarnedPoint > 0 && onSavePointTransaction) {
+        onSavePointTransaction({
+          provider: '네이버페이',
+          type: 'earn',
+          amount: detectedEarnedPoint,
+          title: `${cleanMerchant} 적립 혜택`,
+          date: savedDate,
+          time: savedTime,
+          memo: 'AI 캡처 적립 문구 자동 인식'
+        });
+      }
+
       onClose();
     } finally {
       setIsSubmitting(false);
@@ -840,6 +869,24 @@ export default function AiScannerModal({
                     />
                   </div>
                 </div>
+
+                {/* Detected Point Bonus Sync Toggle */}
+                {detectedEarnedPoint > 0 && (
+                  <div className="p-3 bg-emerald-50/90 border border-emerald-200/90 rounded-2xl flex items-center justify-between animate-fade-in">
+                    <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-emerald-950">
+                      <input
+                        type="checkbox"
+                        checked={recordPointSync}
+                        onChange={(e) => setRecordPointSync(e.target.checked)}
+                        className="w-4 h-4 rounded text-emerald-600 accent-emerald-600 cursor-pointer"
+                      />
+                      <span>🅿️ 네이버페이 포인트 +{formatKRW(detectedEarnedPoint).replace('원', '')}P 적립도 함께 기록</span>
+                    </label>
+                    <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded-full">
+                      캡처 자동 감지
+                    </span>
+                  </div>
+                )}
 
                 {/* Submit Button */}
                 <button

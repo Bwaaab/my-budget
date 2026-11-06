@@ -513,7 +513,183 @@ app.post('/api/google-sheets/sync', async (req, res) => {
   }
 });
 
-// 7. Backup & Restore & Export CSV
+// 7. Point Transactions (Naver Pay Point & others)
+app.get('/api/points', (req, res) => {
+  try {
+    const { provider = '네이버페이', year, month } = req.query;
+    let query = 'SELECT * FROM point_transactions WHERE 1=1';
+    const params = [];
+
+    if (provider && provider !== 'all') {
+      query += ' AND provider = ?';
+      params.push(provider);
+    }
+
+    if (year && month) {
+      const monthStr = String(month).padStart(2, '0');
+      query += ' AND date LIKE ?';
+      params.push(`${year}-${monthStr}%`);
+    } else if (year) {
+      query += ' AND date LIKE ?';
+      params.push(`${year}-%`);
+    }
+
+    query += ' ORDER BY date DESC, time DESC, id DESC';
+    const points = db.prepare(query).all(...params);
+    res.json(points);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/points', (req, res) => {
+  try {
+    const {
+      provider = '네이버페이',
+      type = 'earn', // 'earn', 'use', 'adjust'
+      amount,
+      title,
+      date,
+      time = '',
+      memo = '',
+      linked_tx_id = null
+    } = req.body;
+
+    if (!amount || !title || !date) {
+      return res.status(400).json({ error: '필수 항목(금액, 내용, 날짜)을 입력해주세요.' });
+    }
+
+    const stmt = db.prepare(`
+      INSERT INTO point_transactions (provider, type, amount, title, date, time, memo, linked_tx_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    const result = stmt.run(
+      provider,
+      type,
+      Number(amount),
+      title.trim(),
+      date,
+      time || '',
+      memo || '',
+      linked_tx_id || null
+    );
+
+    const created = db.prepare('SELECT * FROM point_transactions WHERE id = ?').get(result.lastInsertRowid);
+    res.status(201).json(created);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/points/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      provider = '네이버페이',
+      type = 'earn',
+      amount,
+      title,
+      date,
+      time = '',
+      memo = '',
+      linked_tx_id = null
+    } = req.body;
+
+    const stmt = db.prepare(`
+      UPDATE point_transactions
+      SET provider = ?, type = ?, amount = ?, title = ?, date = ?, time = ?, memo = ?, linked_tx_id = ?
+      WHERE id = ?
+    `);
+
+    stmt.run(
+      provider,
+      type,
+      Number(amount),
+      title.trim(),
+      date,
+      time || '',
+      memo || '',
+      linked_tx_id || null,
+      id
+    );
+
+    const updated = db.prepare('SELECT * FROM point_transactions WHERE id = ?').get(id);
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/points/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    db.prepare('DELETE FROM point_transactions WHERE id = ?').run(id);
+    res.json({ success: true, id });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/points/summary', (req, res) => {
+  try {
+    const { provider = '네이버페이', year, month } = req.query;
+    const today = new Date();
+    const curYear = year || today.getFullYear();
+    const curMonth = month || (today.getMonth() + 1);
+    const monthStr = String(curMonth).padStart(2, '0');
+    const pattern = `${curYear}-${monthStr}%`;
+
+    // All time balance for provider
+    const allRows = db.prepare(`
+      SELECT type, SUM(amount) as total
+      FROM point_transactions
+      WHERE provider = ?
+      GROUP BY type
+    `).all(provider);
+
+    let totalEarned = 0;
+    let totalUsed = 0;
+    let totalAdjust = 0;
+
+    for (const r of allRows) {
+      if (r.type === 'earn') totalEarned = r.total || 0;
+      else if (r.type === 'use') totalUsed = r.total || 0;
+      else if (r.type === 'adjust') totalAdjust = r.total || 0;
+    }
+
+    const currentBalance = totalEarned + totalAdjust - totalUsed;
+
+    // Monthly stats for provider
+    const monthRows = db.prepare(`
+      SELECT type, SUM(amount) as total
+      FROM point_transactions
+      WHERE provider = ? AND date LIKE ?
+      GROUP BY type
+    `).all(provider, pattern);
+
+    let monthlyEarned = 0;
+    let monthlyUsed = 0;
+
+    for (const r of monthRows) {
+      if (r.type === 'earn') monthlyEarned = r.total || 0;
+      else if (r.type === 'use') monthlyUsed = r.total || 0;
+    }
+
+    res.json({
+      provider,
+      currentBalance,
+      monthlyEarned,
+      monthlyUsed,
+      year: Number(curYear),
+      month: Number(curMonth)
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 8. Backup & Restore & Export CSV
 app.get('/api/export-csv', (req, res) => {
   try {
     const transactions = db.prepare('SELECT * FROM transactions ORDER BY date DESC, time DESC').all();
@@ -543,12 +719,18 @@ app.get('/api/backup', (req, res) => {
   try {
     const transactions = db.prepare('SELECT * FROM transactions').all();
     const settings = db.prepare('SELECT * FROM settings').all();
+    let pointTransactions = [];
+    try {
+      pointTransactions = db.prepare('SELECT * FROM point_transactions').all();
+    } catch (_) {}
+
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Content-Disposition', `attachment; filename="budget-backup-${Date.now()}.json"`);
     res.json({
-      version: '1.0',
+      version: '1.1',
       exportedAt: new Date().toISOString(),
       transactions,
+      pointTransactions,
       settings
     });
   } catch (err) {
@@ -558,7 +740,7 @@ app.get('/api/backup', (req, res) => {
 
 app.post('/api/restore', (req, res) => {
   try {
-    const { transactions, settings } = req.body;
+    const { transactions, pointTransactions, settings } = req.body;
     if (!Array.isArray(transactions)) {
       return res.status(400).json({ error: '유효한 백업 데이터 형식이 아닙니다.' });
     }
@@ -567,6 +749,14 @@ app.post('/api/restore', (req, res) => {
       INSERT OR REPLACE INTO transactions (id, type, amount, category, merchant, date, time, payment_method, memo, image_path, items_json)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
+
+    let insertPoint = null;
+    try {
+      insertPoint = db.prepare(`
+        INSERT OR REPLACE INTO point_transactions (id, provider, type, amount, title, date, time, memo, linked_tx_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+    } catch (_) {}
 
     const restoreAll = db.transaction(() => {
       for (const t of transactions) {
@@ -584,6 +774,21 @@ app.post('/api/restore', (req, res) => {
           t.items_json || '[]'
         );
       }
+      if (Array.isArray(pointTransactions) && insertPoint) {
+        for (const p of pointTransactions) {
+          insertPoint.run(
+            p.id || null,
+            p.provider || '네이버페이',
+            p.type || 'earn',
+            p.amount,
+            p.title || '포인트',
+            p.date,
+            p.time || '',
+            p.memo || '',
+            p.linked_tx_id || null
+          );
+        }
+      }
       if (Array.isArray(settings)) {
         for (const s of settings) {
           setSetting(s.key, s.value);
@@ -592,7 +797,7 @@ app.post('/api/restore', (req, res) => {
     });
 
     restoreAll();
-    res.json({ success: true, count: transactions.length });
+    res.json({ success: true, count: transactions.length, pointCount: Array.isArray(pointTransactions) ? pointTransactions.length : 0 });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

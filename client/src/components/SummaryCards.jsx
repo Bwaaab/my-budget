@@ -2,7 +2,7 @@ import React from 'react';
 import { Target, PiggyBank } from 'lucide-react';
 import { formatKRW } from '../constants';
 
-export default function SummaryCards({ stats, onOpenBudgetEdit }) {
+export default function SummaryCards({ stats, pointStats, onOpenPointWallet, onOpenBudgetEdit }) {
   const {
     totalExpense = 0,
     totalNeedExpense = 0,
@@ -79,6 +79,36 @@ export default function SummaryCards({ stats, onOpenBudgetEdit }) {
             {monthlyBalance !== 0
               ? `이달 증감 ${monthlyBalance > 0 ? `+${formatKRW(monthlyBalance)}` : formatKRW(monthlyBalance)}`
               : '전체 누적 실가용 현금'}
+          </div>
+        </div>
+      </div>
+
+      {/* Point Wallet Quick Widget */}
+      <div
+        onClick={onOpenPointWallet}
+        className="bg-white hover:bg-zinc-50/80 cursor-pointer rounded-2xl p-3 sm:p-4 border border-zinc-200/80 shadow-xs flex items-center justify-between transition group"
+      >
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-8 h-8 rounded-xl bg-[#03c75a] text-white flex items-center justify-center font-black text-sm flex-shrink-0 shadow-xs">
+            N
+          </div>
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs font-bold text-zinc-900">네이버페이 포인트</span>
+              <span className="text-[10px] text-zinc-400 bg-zinc-100 px-1.5 py-0.5 rounded-md font-medium">지갑</span>
+            </div>
+            <div className="text-[11px] text-zinc-500 truncate mt-0.5">
+              이번 달 적립 <span className="text-emerald-600 font-semibold">+{formatKRW(pointStats?.monthlyEarned || 0).replace('원', '')}P</span> · 사용 <span className="text-rose-500 font-semibold">-{formatKRW(pointStats?.monthlyUsed || 0).replace('원', '')}P</span>
+            </div>
+          </div>
+        </div>
+        <div className="text-right flex-shrink-0">
+          <div className="text-base sm:text-lg font-black text-zinc-900 group-hover:text-emerald-600 transition flex items-baseline justify-end gap-0.5 leading-none">
+            <span>{formatKRW(pointStats?.currentBalance || 0).replace('원', '')}</span>
+            <span className="text-xs font-bold text-emerald-600">P</span>
+          </div>
+          <div className="text-[10px] text-zinc-400 group-hover:underline mt-1">
+            내역 관리 ↗
           </div>
         </div>
       </div>

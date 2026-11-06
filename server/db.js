@@ -37,6 +37,22 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(date);
   CREATE INDEX IF NOT EXISTS idx_transactions_type ON transactions(type);
+
+  CREATE TABLE IF NOT EXISTS point_transactions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    provider TEXT NOT NULL DEFAULT '네이버페이',
+    type TEXT NOT NULL DEFAULT 'earn', -- 'earn'(적립), 'use'(사용), 'adjust'(잔액조정)
+    amount INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    date TEXT NOT NULL,
+    time TEXT DEFAULT '',
+    memo TEXT DEFAULT '',
+    linked_tx_id INTEGER DEFAULT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_point_tx_date ON point_transactions(date);
+  CREATE INDEX IF NOT EXISTS idx_point_tx_provider ON point_transactions(provider);
 `);
 
 // Initialize default settings if not exists
