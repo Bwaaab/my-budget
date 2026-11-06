@@ -9,7 +9,6 @@ import {
   Layers,
   ArrowUpRight,
   ArrowDownRight,
-  SlidersHorizontal,
   CheckCircle2
 } from 'lucide-react';
 import {
@@ -181,7 +180,7 @@ export default function PointWalletModal({
           {/* Registration Form */}
           <form onSubmit={handleSubmit} className="bg-zinc-50 border border-zinc-200/80 rounded-2xl p-3.5 sm:p-4 space-y-3">
             {/* Type Toggle */}
-            <div className="grid grid-cols-3 gap-1 bg-zinc-200/70 p-1 rounded-xl text-xs font-semibold">
+            <div className="grid grid-cols-2 gap-1.5 bg-zinc-200/70 p-1 rounded-xl text-xs font-semibold">
               <button
                 type="button"
                 onClick={() => setActiveTab('earn')}
@@ -191,8 +190,8 @@ export default function PointWalletModal({
                     : 'text-zinc-600 hover:text-zinc-900'
                 }`}
               >
-                <Plus className="w-3 h-3" />
-                <span>적립 (+)</span>
+                <Plus className="w-3.5 h-3.5" />
+                <span>포인트 적립 (+)</span>
               </button>
               <button
                 type="button"
@@ -203,21 +202,8 @@ export default function PointWalletModal({
                     : 'text-zinc-600 hover:text-zinc-900'
                 }`}
               >
-                <Minus className="w-3 h-3" />
-                <span>사용 (-)</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab('adjust')}
-                className={`py-1.5 rounded-lg transition flex items-center justify-center gap-1 ${
-                  activeTab === 'adjust'
-                    ? 'bg-zinc-900 text-white shadow-xs font-bold'
-                    : 'text-zinc-600 hover:text-zinc-900'
-                }`}
-                title="포인트 잔액을 직접 맞출 때 사용"
-              >
-                <SlidersHorizontal className="w-3 h-3" />
-                <span>잔액조정</span>
+                <Minus className="w-3.5 h-3.5" />
+                <span>포인트 사용 (-)</span>
               </button>
             </div>
 
@@ -225,7 +211,7 @@ export default function PointWalletModal({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <div>
                 <label className="block text-[11px] font-semibold text-zinc-600 mb-1">
-                  {activeTab === 'adjust' ? '조정할 잔액 (P)' : '포인트 금액 (P)'}
+                  포인트 금액 (P)
                 </label>
                 <div className="relative">
                   <input
@@ -244,11 +230,7 @@ export default function PointWalletModal({
 
               <div>
                 <label className="block text-[11px] font-semibold text-zinc-600 mb-1">
-                  {activeTab === 'earn'
-                    ? '적립처 / 내용'
-                    : activeTab === 'use'
-                    ? '사용처 / 구매처'
-                    : '조정 사유'}
+                  {activeTab === 'earn' ? '적립처 / 내용' : '사용처 / 구매처'}
                 </label>
                 <input
                   type="text"
@@ -256,9 +238,7 @@ export default function PointWalletModal({
                   placeholder={
                     activeTab === 'earn'
                       ? '예: 네이버쇼핑 리뷰, 구매확정 리워드'
-                      : activeTab === 'use'
-                      ? '예: 배달의민족 결제 시 사용, 쿠팡'
-                      : '예: 현재 앱 잔액과 맞춤'
+                      : '예: 배달의민족 결제 시 사용, 쿠팡'
                   }
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
@@ -366,12 +346,10 @@ export default function PointWalletModal({
                           className={`w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0 text-xs font-bold ${
                             isEarn
                               ? 'bg-emerald-100 text-emerald-700'
-                              : isUse
-                              ? 'bg-rose-100 text-rose-700'
-                              : 'bg-zinc-200 text-zinc-700'
+                              : 'bg-rose-100 text-rose-700'
                           }`}
                         >
-                          {isEarn ? '+' : isUse ? '-' : '='}
+                          {isEarn ? '+' : '-'}
                         </div>
                         <div className="min-w-0">
                           <div className="text-xs font-bold text-zinc-900 truncate">
@@ -387,14 +365,10 @@ export default function PointWalletModal({
                       <div className="flex items-center gap-2.5 flex-shrink-0">
                         <span
                           className={`text-xs font-extrabold ${
-                            isEarn
-                              ? 'text-emerald-600'
-                              : isUse
-                              ? 'text-zinc-900'
-                              : 'text-zinc-500'
+                            isEarn ? 'text-emerald-600' : 'text-zinc-900'
                           }`}
                         >
-                          {isEarn ? '+' : isUse ? '-' : ''}
+                          {isEarn ? '+' : '-'}
                           {formatKRW(p.amount).replace('원', '')} P
                         </span>
                         <button

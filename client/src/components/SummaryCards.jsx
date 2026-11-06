@@ -13,12 +13,16 @@ export default function SummaryCards({ stats, pointStats, onOpenPointWallet, onO
     totalSaving = 0,
     allTimeSaving = 0,
     balance = 0,
+    cashBalance,
+    totalPointBalance,
     monthlyBalance = 0,
     monthlyBudget = 1200000,
     remainingBudget = 0,
     budgetPercent = 0
   } = stats || {};
 
+  const pointBalance = totalPointBalance !== undefined ? totalPointBalance : (pointStats?.currentBalance || 0);
+  const actualCashBalance = cashBalance !== undefined ? cashBalance : (balance - pointBalance);
   const isOverBudget = remainingBudget < 0;
 
   return (
@@ -69,16 +73,29 @@ export default function SummaryCards({ stats, pointStats, onOpenPointWallet, onO
           </div>
         </div>
 
-        {/* 4. Available Cash Balance (Cumulative across all months: AllTimeIncome - AllTimeExpense - AllTimeSaving) */}
+        {/* 4. Available Balance (Cumulative Cash + Points) */}
         <div className="bg-white rounded-2xl p-3.5 sm:p-5 border border-zinc-200/70 shadow-xs min-w-0">
-          <div className="text-xs font-medium text-zinc-500 mb-1 sm:mb-1.5 whitespace-nowrap">가용 잔액 (쓸 수 있는 돈)</div>
+          <div className="flex items-center justify-between text-xs font-medium text-zinc-500 mb-1 sm:mb-1.5 whitespace-nowrap">
+            <span>가용 잔액 (쓸 수 있는 돈)</span>
+            {pointBalance > 0 && (
+              <span className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200/60 px-1.5 py-0.2 rounded-md font-semibold">
+                포인트 포함
+              </span>
+            )}
+          </div>
           <div className={`text-lg sm:text-2xl font-extrabold tracking-tight whitespace-nowrap truncate ${balance >= 0 ? 'text-zinc-900' : 'text-rose-700'}`}>
             {balance > 0 ? `+${formatKRW(balance)}` : formatKRW(balance)}
           </div>
           <div className="mt-1.5 sm:mt-2 text-[11px] text-zinc-400 whitespace-nowrap truncate">
-            {monthlyBalance !== 0
-              ? `이달 증감 ${monthlyBalance > 0 ? `+${formatKRW(monthlyBalance)}` : formatKRW(monthlyBalance)}`
-              : '전체 누적 실가용 현금'}
+            {pointBalance > 0 ? (
+              <span>
+                현금 {formatKRW(actualCashBalance)} + <span className="text-emerald-600 font-semibold">{formatKRW(pointBalance).replace('원', '')}P</span>
+              </span>
+            ) : monthlyBalance !== 0 ? (
+              `이달 증감 ${monthlyBalance > 0 ? `+${formatKRW(monthlyBalance)}` : formatKRW(monthlyBalance)}`
+            ) : (
+              '전체 누적 실가용 현금'
+            )}
           </div>
         </div>
       </div>

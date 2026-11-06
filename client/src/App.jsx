@@ -34,7 +34,7 @@ import {
 import { getSheetsToken, setSheetsToken, ensureSheetsToken, buildSheetsGetUrl } from './sheetsAuth';
 
 // Helper: Client-side stats computation (used on GitHub Pages / Serverless)
-function computeClientStats(txList, year, month, monthlyBudget = 1200000, startDay = 1) {
+function computeClientStats(txList, year, month, monthlyBudget = 1200000, startDay = 1, pointList = []) {
   const range = getBudgetMonthRange(year, month, startDay);
   const allTx = txList || [];
   const monthlyTx = allTx.filter(t => {
@@ -60,6 +60,15 @@ function computeClientStats(txList, year, month, monthlyBudget = 1200000, startD
     } else if (t.type === 'expense') {
       allTimeExpense += amt;
     }
+  }
+
+  // Calculate cumulative point balance across all point providers
+  let totalPointBalance = 0;
+  const pList = pointList && pointList.length > 0 ? pointList : getLocalPointTransactions();
+  for (const p of (pList || [])) {
+    const amt = cleanNumber(p.amount);
+    if (p.type === 'earn') totalPointBalance += amt;
+    else if (p.type === 'use') totalPointBalance -= amt;
   }
 
   const catMap = {};
@@ -91,7 +100,10 @@ function computeClientStats(txList, year, month, monthlyBudget = 1200000, startD
   }
 
   // Cumulative cash left to spend right now across all months = AllTimeIncome - AllTimeExpense - AllTimeSaving
-  const balance = allTimeIncome - allTimeExpense - allTimeSaving;
+  const cashBalance = allTimeIncome - allTimeExpense - allTimeSaving;
+  // Available Balance including cash + point balance
+  const balance = cashBalance + totalPointBalance;
+
   const monthlyBalance = totalIncome - totalExpense - totalSaving;
   const remainingBudget = monthlyBudget - totalExpense;
   const budgetPercent = monthlyBudget > 0 ? Math.round((totalExpense / monthlyBudget) * 100) : 0;
@@ -117,6 +129,8 @@ function computeClientStats(txList, year, month, monthlyBudget = 1200000, startD
     totalIncome,
     totalSaving,
     allTimeSaving,
+    cashBalance,
+    totalPointBalance,
     balance,
     monthlyBalance,
     monthlyBudget,
@@ -392,7 +406,8 @@ export default function App() {
     const localList = getRecoveredLocalTransactions();
     const b = Number(localStorage.getItem('budget_monthly_target')) || Number(settings?.monthly_budget) || 1200000;
     const startDay = Number(curStart) || Number(settings?.month_start_day) || 1;
-    setStats(computeClientStats(localList, curY, curM, b, startDay));
+    const pList = getLocalPointTransactions();
+    setStats(computeClientStats(localList, curY, curM, b, startDay, pList));
   }, [year, month, settings?.monthly_budget, settings?.month_start_day, monthStartDay]);
 
   // 3. Fetch Settings (Never overwrites localStorage with empty server values)
@@ -493,9 +508,10 @@ export default function App() {
       } catch (_) {}
     }
 
-    const typeLabel = pointWithId.type === 'earn' ? '적립' : pointWithId.type === 'use' ? '사용' : '잔액조정';
+    fetchStats();
+    const typeLabel = pointWithId.type === 'earn' ? '적립' : '사용';
     showToast(`🅿️ ${pointWithId.provider} 포인트 ${typeLabel} (${formatKRW(pointWithId.amount).replace('원', '')}P) 완료!`);
-  }, []);
+  }, [fetchStats]);
 
   const handleDeletePoint = useCallback(async (id) => {
     setPointTransactions(prev => {
@@ -510,8 +526,9 @@ export default function App() {
       } catch (_) {}
     }
 
+    fetchStats();
     showToast('포인트 내역이 삭제되었습니다.');
-  }, []);
+  }, [fetchStats]);
 
   // Google Sheets Full Sync (Smart Merge: Preserves unsynced local records + syncs Wishlist & Settings)
   const handleSyncGoogleSheets = useCallback(async (overrideUrl, overrideLocalBudget, silent = false) => {
