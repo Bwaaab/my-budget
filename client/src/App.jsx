@@ -27,6 +27,10 @@ import {
   addDeletedTxIds,
   getRecoveredLocalTransactions,
   saveSafeAutoBackupSnapshot,
+  sortTransactionsLatestFirst,
+  getPendingSheetQueries,
+  enqueueSheetQuery,
+  removePendingSheetQuery,
   getLocalPointTransactions,
   setLocalPointTransactions,
   computePointStats
@@ -547,8 +551,25 @@ export default function App() {
 
     setIsSyncing(true);
     try {
-      // Wait for any pending delete/update/add POST to finish on Google Sheets first
+      // Wait for any in-flight POST to finish on Google Sheets first
       await activeWritePromise;
+
+      // 0. Flush any pending timestamped queries in strict chronological order (oldest -> newest)
+      const pendingQueries = getPendingSheetQueries();
+      if (pendingQueries.length > 0) {
+        for (const q of pendingQueries) {
+          const ok = await postToGoogleSheets(sheetsUrl, {
+            action: q.action,
+            id: q.id,
+            ...q.payload,
+            updatedAt: q.timestamp
+          });
+          if (ok) {
+            removePendingSheetQuery(q.queryId);
+          }
+        }
+      }
+
       const startRevision = writeRevision;
 
       const authenticatedGetUrl = buildSheetsGetUrl(sheetsUrl);
@@ -557,9 +578,7 @@ export default function App() {
       const data = await res.json();
 
       if (data && data.error === 'unauthorized') {
-        if (!silent) {
-          showToast('🔒 구글 시트 보안 인증 실패: 토큰이 일치하지 않습니다. 설정에서 확인해 주세요.');
-        }
+        showToast('🔒 구글 시트 보안 인증 실패: 토큰이 일치하지 않습니다. 설정에서 확인해 주세요.');
         return;
       }
 
@@ -621,12 +640,10 @@ export default function App() {
           }
         }
 
-        // 2. Transactions — True Union Merge (Never wipes out ANY non-deleted local or auto-backup entries)
+        // 2. Transactions — Pure Sheet Viewer (Google Sheets = 100% Single Source of Truth, sorted latest-first)
         if (Array.isArray(data.transactions)) {
-          const deletedIds = getDeletedTxIds();
-          const sheetTx = data.transactions
-            .filter(t => !deletedIds.has(String(t.id)))
-            .map(t => {
+          const sheetTx = sortTransactionsLatestFirst(
+            data.transactions.map(t => {
               const saving = isSavingTx(t);
               return {
                 ...t,
@@ -637,71 +654,20 @@ export default function App() {
                 time: normalizeTimeHM(t.time),
                 synced: true
               };
-            });
-
-          // Automatically includes both budget_local_transactions AND budget_auto_backup_snapshot
-          const prevLocal = getRecoveredLocalTransactions();
-
-          const sheetIdSet = new Set(sheetTx.map(t => String(t.id)));
-          const unsyncedLocal = prevLocal
-            .filter(item => {
-              if (!item || item.id === undefined || item.id === null) return false;
-              const idStr = String(item.id);
-              // Keep EVERY local/backup transaction that wasn't deleted and isn't on the sheet yet
-              return !sheetIdSet.has(idStr) && !deletedIds.has(idStr);
             })
-            .map(t => {
-              const saving = isSavingTx(t);
-              return {
-                ...t,
-                type: saving ? 'saving' : (t.type || 'expense'),
-                category: saving ? '저축/투자' : (t.category || '기타'),
-                necessity: saving ? undefined : (t.necessity || getNecessity(t)),
-                date: normalizeDateYMD(t.date),
-                time: normalizeTimeHM(t.time),
-                synced: false
-              };
-            });
+          );
 
-          const mergedTx = [...unsyncedLocal, ...sheetTx];
-          localStorage.setItem('budget_local_transactions', JSON.stringify(mergedTx));
-          saveSafeAutoBackupSnapshot(mergedTx);
-
-          // Push any missing local/recovered records to Google Sheets automatically
-          if (unsyncedLocal.length > 0) {
-            if (unsyncedLocal.length <= 2) {
-              for (const item of unsyncedLocal) {
-                postToGoogleSheets(sheetsUrl, { action: 'add_transaction', ...item }).then((ok) => {
-                  if (ok) {
-                    try {
-                      const cur = JSON.parse(localStorage.getItem('budget_local_transactions') || '[]');
-                      const updated = cur.map(x => String(x.id) === String(item.id) ? { ...x, synced: true } : x);
-                      localStorage.setItem('budget_local_transactions', JSON.stringify(updated));
-                    } catch (_) {}
-                  }
-                });
-              }
-            } else {
-              // Batch upload all merged transactions in 1 fast atomic request
-              postToGoogleSheets(sheetsUrl, { action: 'sync_transactions', transactions: mergedTx }).then((ok) => {
-                if (ok) {
-                  try {
-                    const cur = JSON.parse(localStorage.getItem('budget_local_transactions') || '[]');
-                    const updated = cur.map(x => ({ ...x, synced: true }));
-                    localStorage.setItem('budget_local_transactions', JSON.stringify(updated));
-                  } catch (_) {}
-                }
-              });
-            }
-          }
+          localStorage.removeItem('budget_deleted_tx_ids');
+          localStorage.setItem('budget_local_transactions', JSON.stringify(sheetTx));
+          saveSafeAutoBackupSnapshot(sheetTx);
 
           const { year: curY, month: curM, monthStartDay: curStart } = latestPeriodRef.current;
           const range = getBudgetMonthRange(curY, curM, curStart);
-          setTransactions(mergedTx.filter(t => {
+          setTransactions(sheetTx.filter(t => {
             const d = normalizeDateYMD(t.date);
             return d >= range.startDate && d <= range.endDate;
           }));
-          txCount = mergedTx.length;
+          txCount = sheetTx.length;
         }
 
         // 3. Monthly Budget Target & Gemini API Key Sync (stored in '설정' sheet)
@@ -950,13 +916,14 @@ export default function App() {
     };
   }, [currentView, isWishlistScannerOpen, isScannerOpen]);
 
-  // Save Transaction (from Scanner or Manual modal)
+  // Save Transaction (from Scanner or Manual modal) — Timestamped Query + Viewer Update
   const handleSaveTransaction = (rawData) => {
     const saving = isSavingTx(rawData);
     const necessity = saving ? undefined : (rawData.necessity || (rawData.type === 'expense' ? getNecessity(rawData) : 'need'));
     const cleanAmt = cleanNumber(rawData.amount);
     const cleanDate = normalizeDateYMD(rawData.date);
     const cleanTime = normalizeTimeHM(rawData.time) || nowHM();
+    const nowTs = Date.now();
 
     const data = {
       ...rawData,
@@ -966,12 +933,13 @@ export default function App() {
       amount: cleanAmt,
       date: cleanDate,
       time: cleanTime,
+      updatedAt: nowTs,
       synced: false
     };
     const isUpdate = !!data.id;
-    const txWithId = isUpdate ? data : { ...data, id: Date.now() };
+    const txWithId = isUpdate ? data : { ...data, id: nowTs };
 
-    // 1. Update LocalStorage & state immediately (instant UI feedback)
+    // 1. Update LocalStorage & state immediately (instant UI feedback, sorted latest-first)
     let list = [];
     try {
       const saved = localStorage.getItem('budget_local_transactions');
@@ -979,10 +947,11 @@ export default function App() {
     } catch (_) {}
 
     if (isUpdate) {
-      list = list.map(item => item.id === data.id ? { ...item, ...data, synced: false } : item);
+      list = list.map(item => String(item.id) === String(data.id) ? { ...item, ...data, synced: false } : item);
     } else {
       list.unshift(txWithId);
     }
+    list = sortTransactionsLatestFirst(list);
     localStorage.setItem('budget_local_transactions', JSON.stringify(list));
     saveSafeAutoBackupSnapshot(list);
 
@@ -1023,11 +992,14 @@ export default function App() {
       }).catch(() => {});
     } catch (_) {}
 
+    // 3. Enqueue timestamped query & send to Google Sheets Backend
+    const action = isUpdate ? 'update_transaction' : 'add_transaction';
+    const queryId = enqueueSheetQuery({ action, id: txWithId.id, payload: txWithId });
     const sheetsUrl = (settings?.google_sheets_url || localStorage.getItem('budget_sheets_url') || '').trim();
     if (sheetsUrl) {
-      const action = isUpdate ? 'update_transaction' : 'add_transaction';
       postToGoogleSheets(sheetsUrl, { action, ...txWithId }).then((ok) => {
         if (ok) {
+          if (queryId) removePendingSheetQuery(queryId);
           try {
             const cur = JSON.parse(localStorage.getItem('budget_local_transactions') || '[]');
             const updated = cur.map(item => String(item.id) === String(txWithId.id) ? { ...item, synced: true } : item);
@@ -1038,15 +1010,14 @@ export default function App() {
     }
   };
 
-  // Delete Transaction (Atomic row-level delete + records deleted ID to prevent resurrection)
+  // Delete Transaction — Timestamped Delete Query to Google Sheets
   const handleDeleteTransaction = async (id) => {
     if (!confirm('이 내역을 삭제하시겠습니까?')) return;
-    addDeletedTxIds(id);
     try {
       await fetch(`/api/transactions/${id}`, { method: 'DELETE' });
     } catch (_) {}
 
-    // Remove from localstorage
+    // Remove from local viewer cache immediately
     let list = [];
     try {
       const saved = localStorage.getItem('budget_local_transactions');
@@ -1054,6 +1025,7 @@ export default function App() {
     } catch (_) {}
     list = list.filter(t => String(t.id) !== String(id));
     localStorage.setItem('budget_local_transactions', JSON.stringify(list));
+    saveSafeAutoBackupSnapshot(list);
 
     const range = getBudgetMonthRange(year, month, monthStartDay);
     setTransactions(list.filter(t => {
@@ -1063,9 +1035,13 @@ export default function App() {
     fetchStats();
     showToast('🗑️ 내역이 삭제되었습니다.');
 
+    const queryId = enqueueSheetQuery({ action: 'delete_transaction', id, payload: { id } });
     const sheetsUrl = (settings?.google_sheets_url || localStorage.getItem('budget_sheets_url') || '').trim();
     if (sheetsUrl) {
-      await postToGoogleSheets(sheetsUrl, { action: 'delete_transaction', id });
+      const ok = await postToGoogleSheets(sheetsUrl, { action: 'delete_transaction', id });
+      if (ok && queryId) {
+        removePendingSheetQuery(queryId);
+      }
     }
   };
 

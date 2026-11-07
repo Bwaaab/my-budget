@@ -571,78 +571,23 @@ export default function SettingsModal({
       }
     });
 
-    // 2. Exact Duplicates (Same date, type, clean merchant, amount)
+    // 2. Exact Duplicates (Same date, time, type, clean merchant, amount)
     const exactMap = new Map();
     list.forEach(item => {
       if (suspiciousIdSet.has(item.id)) return;
       const cleanMerchant = String(item.merchant || '').replace(/\s+/g, '').toLowerCase();
       const amount = Number(item.amount) || 0;
-      const sig = `${item.date}_${item.type}_${cleanMerchant}_${amount}`;
+      const timeStr = String(item.time || '').trim();
+      const sig = `${item.date}_${timeStr}_${item.type}_${cleanMerchant}_${amount}`;
 
       if (exactMap.has(sig)) {
         suspiciousIdSet.add(item.id);
         suspicious.push({
           ...item,
-          reason: `완전 동일 내역 중복 등록 (기준: ${exactMap.get(sig).date})`
+          reason: `완전 동일 내역 중복 등록 (기준: ${exactMap.get(sig).date} ${timeStr})`
         });
       } else {
         exactMap.set(sig, item);
-      }
-    });
-
-    // 3. AI Date-Misrecognized Duplicates (Same merchant & amount, but different dates — e.g. 차이풍 케이스)
-    // Group all transactions by cleanMerchant + amount
-    const merchantAmountGroups = new Map();
-    list.forEach(item => {
-      const cleanMerchant = String(item.merchant || '').replace(/\s+/g, '').toLowerCase();
-      const amount = Number(item.amount) || 0;
-      if (!cleanMerchant || amount <= 0) return;
-
-      const groupKey = `${cleanMerchant}_${amount}`;
-      if (!merchantAmountGroups.has(groupKey)) {
-        merchantAmountGroups.set(groupKey, []);
-      }
-      merchantAmountGroups.get(groupKey).push(item);
-    });
-
-    merchantAmountGroups.forEach((groupItems) => {
-      if (groupItems.length <= 1) return;
-
-      // Sort items by date descending, prioritizing current year & latest valid date
-      const sorted = [...groupItems].sort((a, b) => {
-        const yearA = parseInt(String(a.date).slice(0, 4), 10) || 0;
-        const yearB = parseInt(String(b.date).slice(0, 4), 10) || 0;
-
-        // Current year takes precedence over past years (e.g. 2026 > 2024)
-        const isACurrent = yearA === currentYear ? 1 : 0;
-        const isBCurrent = yearB === currentYear ? 1 : 0;
-        if (isACurrent !== isBCurrent) return isBCurrent - isACurrent;
-
-        // Then latest date wins
-        return String(b.date).localeCompare(String(a.date));
-      });
-
-      // The first one (most legitimate recent entry) is kept as master
-      const master = sorted[0];
-
-      // All other duplicates in this group are flagged
-      for (let i = 1; i < sorted.length; i++) {
-        const dupe = sorted[i];
-        if (suspiciousIdSet.has(dupe.id)) continue;
-
-        const dupeYear = parseInt(String(dupe.date).slice(0, 4), 10) || 0;
-        let reason = '';
-        if (dupeYear > 0 && dupeYear < currentYear) {
-          reason = `과거 연도 오인식 중복 (정상: ${master.date} / 감지: ${dupe.date})`;
-        } else {
-          reason = `날짜 오인식 중복 의심 (동일 상호·금액, 기준: ${master.date})`;
-        }
-
-        suspiciousIdSet.add(dupe.id);
-        suspicious.push({
-          ...dupe,
-          reason
-        });
       }
     });
 
@@ -652,7 +597,7 @@ export default function SettingsModal({
     setCleanupMessage(
       suspicious.length === 0
         ? '정리가 필요한 중복·실패 내역이 없습니다.'
-        : `총 ${suspicious.length}건의 잘못된 내역(과거 연도 오인식 및 유사 중복)이 감지되었습니다.`
+        : `총 ${suspicious.length}건의 중복·실패 내역이 감지되었습니다.`
     );
   };
 

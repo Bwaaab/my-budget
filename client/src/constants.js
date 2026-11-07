@@ -297,89 +297,118 @@ export function getActiveBudgetMonth(date = new Date(), startDay = 1) {
 }
 
 const DELETED_TX_KEY = 'budget_deleted_tx_ids';
+const AUTO_BACKUP_KEY = 'budget_auto_backup_snapshot';
+const PENDING_QUERIES_KEY = 'budget_pending_queries';
 
-export function getDeletedTxIds() {
+/**
+ * Sort transactions strictly in latest-first order (date DESC -> time DESC -> updatedAt/id DESC)
+ */
+export function sortTransactionsLatestFirst(list) {
+  if (!Array.isArray(list)) return [];
+  return [...list].sort((a, b) => {
+    const dA = normalizeDateYMD(a?.date);
+    const dB = normalizeDateYMD(b?.date);
+    if (dA !== dB) return dB.localeCompare(dA);
+
+    const tA = normalizeTimeHM(a?.time) || '00:00';
+    const tB = normalizeTimeHM(b?.time) || '00:00';
+    if (tA !== tB) return tB.localeCompare(tA);
+
+    const uA = Number(a?.updatedAt) || Number(a?.id) || 0;
+    const uB = Number(b?.updatedAt) || Number(b?.id) || 0;
+    return uB - uA;
+  });
+}
+
+/**
+ * Timestamped Query Queue Manager (Google Sheets = Backend DB, App = Query Client + Viewer)
+ * Queries are stored and replayed in chronological order (oldest timestamp -> newest timestamp)
+ * so the latest mutation always wins on the sheet.
+ */
+export function getPendingSheetQueries() {
   try {
-    const raw = localStorage.getItem(DELETED_TX_KEY);
-    const arr = raw ? JSON.parse(raw) : [];
-    return new Set(( Array.isArray(arr) ? arr : [] ).map(id => String(id)));
+    const raw = localStorage.getItem(PENDING_QUERIES_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.sort((a, b) => (Number(a.timestamp) || 0) - (Number(b.timestamp) || 0));
   } catch (_) {
-    return new Set();
+    return [];
   }
 }
 
-export function addDeletedTxIds(ids) {
+export function enqueueSheetQuery({ action, id, payload = {} }) {
   try {
-    const set = getDeletedTxIds();
-    const list = Array.isArray(ids) ? ids : [ids];
-    for (const id of list) {
-      if (id !== undefined && id !== null) set.add(String(id));
+    const now = Date.now();
+    const queryId = `q_${now}_${Math.random().toString(36).slice(2, 7)}`;
+    const targetId = id !== undefined && id !== null ? String(id) : String(payload?.id ?? '');
+    const queue = getPendingSheetQueries();
+
+    // Compact older pending queries targeting the same record ID so only the latest state is applied in order
+    const compacted = [];
+    for (const q of queue) {
+      if (targetId && String(q.id) === targetId) {
+        if (q.action === 'add_transaction' && action === 'update_transaction') {
+          // Keep as add_transaction but with updated payload and latest timestamp
+          compacted.push({
+            ...q,
+            queryId,
+            timestamp: now,
+            payload: { ...q.payload, ...payload, updatedAt: now }
+          });
+          localStorage.setItem(PENDING_QUERIES_KEY, JSON.stringify(compacted));
+          return queryId;
+        }
+        // Otherwise supersede older query for the same ID with the newer query below
+        continue;
+      }
+      compacted.push(q);
     }
-    const arr = Array.from(set).slice(-500);
-    localStorage.setItem(DELETED_TX_KEY, JSON.stringify(arr));
+
+    compacted.push({
+      queryId,
+      timestamp: now,
+      action,
+      id: targetId,
+      payload: { ...payload, updatedAt: now }
+    });
+
+    compacted.sort((a, b) => (Number(a.timestamp) || 0) - (Number(b.timestamp) || 0));
+    localStorage.setItem(PENDING_QUERIES_KEY, JSON.stringify(compacted));
+    return queryId;
+  } catch (_) {
+    return null;
+  }
+}
+
+export function removePendingSheetQuery(queryId) {
+  try {
+    const queue = getPendingSheetQueries().filter(q => q.queryId !== queryId);
+    localStorage.setItem(PENDING_QUERIES_KEY, JSON.stringify(queue));
   } catch (_) {}
 }
 
-const AUTO_BACKUP_KEY = 'budget_auto_backup_snapshot';
+export function getDeletedTxIds() {
+  return new Set();
+}
+
+export function addDeletedTxIds() {
+  // No-op: Google Sheets is the Single Source of Truth; local blacklist is disabled so sheet rows are never hidden
+  try {
+    localStorage.removeItem(DELETED_TX_KEY);
+  } catch (_) {}
+}
 
 /**
- * Automatically merges `budget_local_transactions` and `budget_auto_backup_snapshot`
- * (excluding any user-deleted IDs in `budget_deleted_tx_ids`) so no local record is ever lost.
+ * Pure Viewer Cache Reader:
+ * Returns the cached sheet view (`budget_local_transactions`) sorted latest-first,
+ * without resurrecting old snapshots or hiding rows via local deletedIds.
  */
 export function getRecoveredLocalTransactions() {
   try {
-    const deletedIds = getDeletedTxIds();
-    let localList = [];
-    try {
-      const raw = localStorage.getItem('budget_local_transactions');
-      const parsed = raw ? JSON.parse(raw) : [];
-      if (Array.isArray(parsed)) localList = parsed;
-    } catch (_) {}
-
-    let backupList = [];
-    try {
-      const rawSnap = localStorage.getItem(AUTO_BACKUP_KEY);
-      const parsedSnap = rawSnap ? JSON.parse(rawSnap) : null;
-      if (parsedSnap && Array.isArray(parsedSnap.transactions)) {
-        backupList = parsedSnap.transactions;
-      } else if (Array.isArray(parsedSnap)) {
-        backupList = parsedSnap;
-      }
-    } catch (_) {}
-
-    const seenIds = new Set();
-    const merged = [];
-    let recoveredCount = 0;
-
-    for (const item of localList) {
-      if (!item || item.id === undefined || item.id === null) continue;
-      const idStr = String(item.id);
-      if (deletedIds.has(idStr) || seenIds.has(idStr)) continue;
-      seenIds.add(idStr);
-      merged.push(item);
-    }
-
-    for (const item of backupList) {
-      if (!item || item.id === undefined || item.id === null) continue;
-      const idStr = String(item.id);
-      if (deletedIds.has(idStr) || seenIds.has(idStr)) continue;
-      seenIds.add(idStr);
-      merged.push({ ...item, synced: false });
-      recoveredCount++;
-    }
-
-    if (recoveredCount > 0) {
-      localStorage.setItem('budget_local_transactions', JSON.stringify(merged));
-    }
-
-    if (merged.length >= backupList.length && merged.length > 0) {
-      localStorage.setItem(AUTO_BACKUP_KEY, JSON.stringify({
-        savedAt: new Date().toISOString(),
-        transactions: merged
-      }));
-    }
-
-    return merged;
+    const raw = localStorage.getItem('budget_local_transactions');
+    const parsed = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(parsed)) return [];
+    return sortTransactionsLatestFirst(parsed);
   } catch (_) {
     return [];
   }
@@ -387,37 +416,10 @@ export function getRecoveredLocalTransactions() {
 
 export function saveSafeAutoBackupSnapshot(list) {
   try {
-    if (!Array.isArray(list) || list.length === 0) return;
-    const deletedIds = getDeletedTxIds();
-    let existing = [];
-    try {
-      const rawSnap = localStorage.getItem(AUTO_BACKUP_KEY);
-      const parsedSnap = rawSnap ? JSON.parse(rawSnap) : null;
-      if (parsedSnap && Array.isArray(parsedSnap.transactions)) {
-        existing = parsedSnap.transactions;
-      }
-    } catch (_) {}
-
-    const seen = new Set();
-    const union = [];
-    for (const item of list) {
-      if (!item || item.id === undefined || item.id === null) continue;
-      const idStr = String(item.id);
-      if (deletedIds.has(idStr) || seen.has(idStr)) continue;
-      seen.add(idStr);
-      union.push(item);
-    }
-    for (const item of existing) {
-      if (!item || item.id === undefined || item.id === null) continue;
-      const idStr = String(item.id);
-      if (deletedIds.has(idStr) || seen.has(idStr)) continue;
-      seen.add(idStr);
-      union.push(item);
-    }
-
+    if (!Array.isArray(list)) return;
     localStorage.setItem(AUTO_BACKUP_KEY, JSON.stringify({
       savedAt: new Date().toISOString(),
-      transactions: union
+      transactions: list
     }));
   } catch (_) {}
 }
