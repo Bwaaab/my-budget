@@ -63,7 +63,7 @@ export const CATEGORY_COLORS = {
   '기타': '#94a3b8'
 };
 
-export function getMerchantFieldInfo(type, pointMode = 'earn') {
+export function getMerchantFieldInfo(type, pointMode = 'earn', isSavingWithdraw = false) {
   if (type === 'point') {
     return pointMode === 'use'
       ? {
@@ -76,10 +76,15 @@ export function getMerchantFieldInfo(type, pointMode = 'earn') {
         };
   }
   if (type === 'saving') {
-    return {
-      label: '저축·투자처 / 상품명',
-      placeholder: '예: 토스증권 S&P500, 청약저축, 카카오뱅크 26주적금'
-    };
+    return isSavingWithdraw
+      ? {
+          label: '인출 출처 / 상품명',
+          placeholder: '예: 토스증권 주식 매도, 청약저축 해지, CMA 출금'
+        }
+      : {
+          label: '저축·투자처 / 상품명',
+          placeholder: '예: 토스증권 S&P500, 청약저축, 카카오뱅크 26주적금'
+        };
   }
   if (type === 'income') {
     return {
@@ -96,6 +101,19 @@ export function getMerchantFieldInfo(type, pointMode = 'earn') {
 export function isSavingTx(t) {
   if (!t) return false;
   return t.type === 'saving' || t.category === '저축/투자' || t.category === '저축' || t.category === '투자';
+}
+
+export function isSavingWithdrawTx(t) {
+  if (!t) return false;
+  return (
+    t.saving_mode === 'withdraw' ||
+    t.savingMode === 'withdraw' ||
+    t.category === '저축/투자(인출)' ||
+    t.category === '저축(인출)' ||
+    t.category === '투자금 회수' ||
+    (isSavingTx(t) && (t.memo || '').includes('[투자금 인출]')) ||
+    (isSavingTx(t) && (t.memo || '').includes('[투자금 회수]'))
+  );
 }
 
 export function isPointTx(t) {

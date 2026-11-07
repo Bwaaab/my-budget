@@ -5,6 +5,7 @@ import {
   PAYMENT_METHODS,
   formatKRW,
   isSavingTx,
+  isSavingWithdrawTx,
   isPointTx,
   isPointUseTx,
   getNecessity,
@@ -28,6 +29,7 @@ export default function TransactionModal({
   const [formData, setFormData] = useState({
     type: 'expense',
     pointMode: 'earn', // 'earn' | 'use'
+    savingMode: 'deposit', // 'deposit' | 'withdraw'
     necessity: 'need',
     amount: '',
     merchant: '',
@@ -37,7 +39,11 @@ export default function TransactionModal({
     payment_method: '신용카드',
     memo: ''
   });
-  const merchantField = getMerchantFieldInfo(formData.type, formData.pointMode);
+  const merchantField = getMerchantFieldInfo(
+    formData.type,
+    formData.pointMode,
+    formData.type === 'saving' && formData.savingMode === 'withdraw'
+  );
 
   useEffect(() => {
     if (initialData) {
@@ -45,6 +51,7 @@ export default function TransactionModal({
         setFormData({
           type: 'point',
           pointMode: initialData.pointMode || 'earn',
+          savingMode: 'deposit',
           necessity: 'need',
           amount: '',
           merchant: '',
@@ -57,18 +64,38 @@ export default function TransactionModal({
         return;
       }
 
+      if (initialData.defaultType === 'saving' && !initialData.id) {
+        const isWithdraw = initialData.savingMode === 'withdraw';
+        setFormData({
+          type: 'saving',
+          pointMode: 'earn',
+          savingMode: isWithdraw ? 'withdraw' : 'deposit',
+          necessity: 'need',
+          amount: '',
+          merchant: '',
+          date: todayYMD(),
+          time: nowHM(),
+          category: isWithdraw ? '저축/투자(인출)' : '저축/투자',
+          payment_method: '계좌이체',
+          memo: isWithdraw ? '[투자금 인출]' : ''
+        });
+        return;
+      }
+
       const point = isPointTx(initialData);
       const saving = !point && isSavingTx(initialData);
+      const savingWithdraw = saving && isSavingWithdrawTx(initialData);
       setFormData({
         id: initialData.id,
         type: point ? 'point' : saving ? 'saving' : initialData.type || 'expense',
         pointMode: point && isPointUseTx(initialData) ? 'use' : 'earn',
+        savingMode: savingWithdraw ? 'withdraw' : 'deposit',
         necessity: saving ? 'need' : getNecessity(initialData),
         amount: initialData.amount ? String(initialData.amount) : '',
         merchant: initialData.merchant || '',
         date: initialData.date || todayYMD(),
         time: initialData.time || nowHM(),
-        category: point ? '포인트' : saving ? '저축/투자' : initialData.category || '식비',
+        category: point ? '포인트' : saving ? (savingWithdraw ? '저축/투자(인출)' : '저축/투자') : initialData.category || '식비',
         payment_method: point ? '네이버페이(포인트)' : initialData.payment_method || (saving ? '계좌이체' : '신용카드'),
         memo: initialData.memo || '',
         image_path: initialData.image_path || ''
@@ -77,6 +104,7 @@ export default function TransactionModal({
       setFormData({
         type: 'expense',
         pointMode: 'earn',
+        savingMode: 'deposit',
         necessity: 'need',
         amount: '',
         merchant: '',
@@ -109,6 +137,30 @@ export default function TransactionModal({
         merchant: cleanMerchant,
         date: normalizeDateYMD(formData.date),
         time: normalizeTimeHM(formData.time) || nowHM()
+      });
+      onClose();
+      return;
+    }
+
+    if (formData.type === 'saving') {
+      const isWithdraw = formData.savingMode === 'withdraw';
+      let memo = (formData.memo || '').trim();
+      if (isWithdraw && !memo.includes('[투자금 인출]')) {
+        memo = `[투자금 인출] ${memo}`.trim();
+      }
+      onSave({
+        ...formData,
+        type: 'saving',
+        saving_mode: isWithdraw ? 'withdraw' : 'deposit',
+        savingMode: isWithdraw ? 'withdraw' : 'deposit',
+        category: isWithdraw ? '저축/투자(인출)' : '저축/투자',
+        payment_method: formData.payment_method || '계좌이체',
+        necessity: undefined,
+        amount: cleanAmt,
+        merchant: cleanMerchant,
+        date: normalizeDateYMD(formData.date),
+        time: normalizeTimeHM(formData.time) || nowHM(),
+        memo
       });
       onClose();
       return;
@@ -219,6 +271,53 @@ export default function TransactionModal({
             </button>
           </div>
 
+          {/* Saving Mode Toggle (Only for saving) */}
+          {formData.type === 'saving' && (
+            <div>
+              <label className="block text-xs font-semibold text-zinc-700 mb-1">
+                저축 · 투자 구분
+              </label>
+              <div className="grid grid-cols-2 gap-1.5 bg-zinc-100 p-1 rounded-xl text-xs font-semibold">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setFormData({
+                      ...formData,
+                      savingMode: 'deposit',
+                      category: '저축/투자'
+                    })
+                  }
+                  className={`py-1.5 px-2.5 rounded-lg transition flex items-center justify-center gap-1.5 whitespace-nowrap ${
+                    formData.savingMode !== 'withdraw'
+                      ? 'bg-zinc-900 text-white shadow-xs font-bold'
+                      : 'text-zinc-500 hover:text-zinc-900'
+                  }`}
+                >
+                  <span>+ 저축·투자</span>
+                  <span className={`text-[10px] ${formData.savingMode !== 'withdraw' ? 'text-zinc-300' : 'text-zinc-400'}`}>(모으기)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setFormData({
+                      ...formData,
+                      savingMode: 'withdraw',
+                      category: '저축/투자(인출)'
+                    })
+                  }
+                  className={`py-1.5 px-2.5 rounded-lg transition flex items-center justify-center gap-1.5 whitespace-nowrap ${
+                    formData.savingMode === 'withdraw'
+                      ? 'bg-zinc-900 text-white shadow-xs font-bold'
+                      : 'text-zinc-500 hover:text-zinc-900'
+                  }`}
+                >
+                  <span>- 투자금 회수</span>
+                  <span className={`text-[10px] ${formData.savingMode === 'withdraw' ? 'text-zinc-300' : 'text-zinc-400'}`}>(가용자산 추가)</span>
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Point Mode Toggle (Only for point) */}
           {formData.type === 'point' && (
             <div>
@@ -294,7 +393,11 @@ export default function TransactionModal({
           {/* Amount */}
           <div>
             <label className="block text-xs font-semibold text-zinc-700 mb-1">
-              {formData.type === 'point' ? '포인트 금액 (P)' : '금액 (원)'}
+              {formData.type === 'point'
+                ? '포인트 금액 (P)'
+                : formData.type === 'saving' && formData.savingMode === 'withdraw'
+                  ? '가용자산으로 복귀할 금액 (원)'
+                  : '금액 (원)'}
             </label>
             <div className="relative">
               <input

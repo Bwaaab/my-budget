@@ -17,6 +17,7 @@ import {
   normalizeDateYMD,
   normalizeTimeHM,
   isSavingTx,
+  isSavingWithdrawTx,
   isPointTx,
   isPointEarnTx,
   getNecessity,
@@ -54,6 +55,8 @@ function computeClientStats(txList, year, month, monthlyBudget = 1200000, startD
   let totalWantExpense = 0;
   let totalIncome = 0;
   let totalSaving = 0;
+  let monthlySavingDeposit = 0;
+  let monthlySavingWithdraw = 0;
   let allTimeSaving = 0;
   let allTimeIncome = 0;
   let allTimeExpense = 0;
@@ -67,7 +70,11 @@ function computeClientStats(txList, year, month, monthlyBudget = 1200000, startD
       if (isPointEarnTx(t)) totalPointBalance += amt;
       else totalPointBalance -= amt;
     } else if (isSavingTx(t)) {
-      allTimeSaving += amt;
+      if (isSavingWithdrawTx(t)) {
+        allTimeSaving -= amt;
+      } else {
+        allTimeSaving += amt;
+      }
     } else if (t.type === 'income') {
       allTimeIncome += amt;
     } else if (t.type === 'expense') {
@@ -96,8 +103,15 @@ function computeClientStats(txList, year, month, monthlyBudget = 1200000, startD
       if (isPointEarnTx(t)) monthlyPointEarned += amt;
       else monthlyPointUsed += amt;
     } else if (isSavingTx(t)) {
-      totalSaving += amt;
-      if (dailyMap[cleanDate]) dailyMap[cleanDate].saving += amt;
+      if (isSavingWithdrawTx(t)) {
+        totalSaving -= amt;
+        monthlySavingWithdraw += amt;
+        if (dailyMap[cleanDate]) dailyMap[cleanDate].saving -= amt;
+      } else {
+        totalSaving += amt;
+        monthlySavingDeposit += amt;
+        if (dailyMap[cleanDate]) dailyMap[cleanDate].saving += amt;
+      }
     } else if (t.type === 'expense') {
       totalExpense += amt;
       const nec = getNecessity(t);
@@ -166,6 +180,8 @@ function computeClientStats(txList, year, month, monthlyBudget = 1200000, startD
     wantPercent,
     totalIncome,
     totalSaving,
+    monthlySavingDeposit,
+    monthlySavingWithdraw,
     allTimeSaving,
     cashBalance,
     totalPointBalance,
@@ -936,7 +952,7 @@ export default function App() {
     const data = {
       ...rawData,
       type: saving ? 'saving' : (rawData.type || 'expense'),
-      category: saving ? '저축/투자' : (rawData.category || '기타'),
+      category: saving ? (isSavingWithdrawTx(rawData) ? '저축/투자(인출)' : (rawData.category || '저축/투자')) : (rawData.category || '기타'),
       necessity,
       amount: cleanAmt,
       date: cleanDate,
@@ -1038,7 +1054,7 @@ export default function App() {
         : saving
         ? 'saving'
         : rawData.type || 'expense';
-      const finalCategory = point ? '포인트' : saving ? '저축/투자' : rawData.category || '기타';
+      const finalCategory = point ? '포인트' : saving ? (isSavingWithdrawTx(rawData) ? '저축/투자(인출)' : (rawData.category || '저축/투자')) : rawData.category || '기타';
       const finalMethod = point
         ? '네이버페이(포인트)'
         : rawData.payment_method || (saving ? '계좌이체' : '신용카드');
@@ -1476,6 +1492,10 @@ export default function App() {
               }}
               onOpenBudgetEdit={() => setIsSettingsModalOpen(true)}
               onOpenCategoryBudgetModal={() => setIsCategoryBudgetModalOpen(true)}
+              onOpenSavingWithdraw={() => {
+                setEditingTx({ defaultType: 'saving', savingMode: 'withdraw' });
+                setIsTxModalOpen(true);
+              }}
             />
 
             {/* 2. Visual Charts (Category donut + Daily trend) */}

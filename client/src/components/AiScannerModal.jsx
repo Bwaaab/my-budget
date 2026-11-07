@@ -25,6 +25,7 @@ import {
   normalizeTimeHM,
   todayYMD,
   nowHM,
+  isSavingWithdrawTx,
   getMerchantFieldInfo
 } from '../constants';
 
@@ -660,6 +661,25 @@ export default function AiScannerModal({
             date: savedDate,
             time: savedTime
           });
+        } else if (item.type === 'saving') {
+          const isWithdraw = item.savingMode === 'withdraw' || isSavingWithdrawTx(item);
+          let memo = (item.memo || '').trim();
+          if (isWithdraw && !memo.includes('[투자금 인출]')) {
+            memo = `[투자금 인출] ${memo}`.trim();
+          }
+          validPayloads.push({
+            ...item,
+            type: 'saving',
+            saving_mode: isWithdraw ? 'withdraw' : 'deposit',
+            savingMode: isWithdraw ? 'withdraw' : 'deposit',
+            category: isWithdraw ? '저축/투자(인출)' : '저축/투자',
+            payment_method: item.payment_method || '계좌이체',
+            amount: cleanAmt,
+            merchant: cleanMerchant,
+            date: savedDate,
+            time: savedTime,
+            memo
+          });
         } else {
           validPayloads.push({
             ...item,
@@ -1048,10 +1068,13 @@ export default function AiScannerModal({
                         const isPoint = item.type === 'point';
                         const isSaving = item.type === 'saving';
                         const isChecked = item.checked !== false;
+                        const isWithdraw = isSaving && (item.savingMode === 'withdraw' || isSavingWithdrawTx(item));
                         const combinedTypeVal = isPoint
                           ? item.pointMode === 'use'
                             ? 'point_use'
                             : 'point_earn'
+                          : isWithdraw
+                          ? 'saving_withdraw'
                           : isSaving
                           ? 'saving'
                           : item.type === 'income'
@@ -1062,17 +1085,19 @@ export default function AiScannerModal({
 
                         const handleCombinedTypeChange = (val) => {
                           if (val === 'expense_need') {
-                            handleUpdateBatchItem(item.tempId, { type: 'expense', necessity: 'need' });
+                            handleUpdateBatchItem(item.tempId, { type: 'expense', necessity: 'need', savingMode: undefined });
                           } else if (val === 'expense_want') {
-                            handleUpdateBatchItem(item.tempId, { type: 'expense', necessity: 'want' });
+                            handleUpdateBatchItem(item.tempId, { type: 'expense', necessity: 'want', savingMode: undefined });
                           } else if (val === 'saving') {
-                            handleUpdateBatchItem(item.tempId, { type: 'saving' });
+                            handleUpdateBatchItem(item.tempId, { type: 'saving', savingMode: 'deposit', category: '저축/투자' });
+                          } else if (val === 'saving_withdraw') {
+                            handleUpdateBatchItem(item.tempId, { type: 'saving', savingMode: 'withdraw', saving_mode: 'withdraw', category: '저축/투자(인출)' });
                           } else if (val === 'income') {
-                            handleUpdateBatchItem(item.tempId, { type: 'income' });
+                            handleUpdateBatchItem(item.tempId, { type: 'income', savingMode: undefined });
                           } else if (val === 'point_earn') {
-                            handleUpdateBatchItem(item.tempId, { type: 'point', pointMode: 'earn' });
+                            handleUpdateBatchItem(item.tempId, { type: 'point', pointMode: 'earn', savingMode: undefined });
                           } else if (val === 'point_use') {
-                            handleUpdateBatchItem(item.tempId, { type: 'point', pointMode: 'use' });
+                            handleUpdateBatchItem(item.tempId, { type: 'point', pointMode: 'use', savingMode: undefined });
                           }
                         };
 
@@ -1116,6 +1141,9 @@ export default function AiScannerModal({
                                     </option>
                                     <option value="saving" className="bg-white text-zinc-900">
                                       저축 · 투자
+                                    </option>
+                                    <option value="saving_withdraw" className="bg-white text-zinc-900">
+                                      투자금 회수
                                     </option>
                                     <option value="income" className="bg-white text-zinc-900">
                                       수입

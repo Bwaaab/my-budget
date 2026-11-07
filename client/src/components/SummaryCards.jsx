@@ -7,7 +7,8 @@ export default function SummaryCards({
   stats,
   onOpenPointAdd,
   onOpenBudgetEdit,
-  onOpenCategoryBudgetModal
+  onOpenCategoryBudgetModal,
+  onOpenSavingWithdraw
 }) {
   const [isCatBudgetOpen, setIsCatBudgetOpen] = useState(false);
   const {
@@ -60,13 +61,25 @@ export default function SummaryCards({
         <div className="bg-zinc-900 text-white rounded-2xl p-3.5 sm:p-5 border border-zinc-800 shadow-xs min-w-0">
           <div className="flex items-center justify-between gap-1 mb-1 sm:mb-1.5">
             <span className="text-xs font-medium text-zinc-300 whitespace-nowrap">저축 · 투자</span>
-            <PiggyBank className="w-3.5 h-3.5 text-zinc-400 flex-shrink-0" />
+            <div className="flex items-center gap-1.5">
+              {onOpenSavingWithdraw && (
+                <button
+                  type="button"
+                  onClick={onOpenSavingWithdraw}
+                  className="text-[10px] px-1.5 py-0.5 rounded-md bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-600 text-zinc-300 hover:text-white border border-zinc-700/80 transition active:scale-95 cursor-pointer whitespace-nowrap"
+                  title="투자금 인출 (가용자산으로 복귀)"
+                >
+                  인출
+                </button>
+              )}
+              <PiggyBank className="w-3.5 h-3.5 text-zinc-400 flex-shrink-0" />
+            </div>
           </div>
           <div className="text-lg sm:text-2xl font-extrabold text-white tracking-tight whitespace-nowrap truncate">
             {formatKRW(totalSaving)}
           </div>
           <div className="mt-1.5 sm:mt-2 text-[11px] text-zinc-400 whitespace-nowrap truncate">
-            {allTimeSaving > totalSaving
+            {allTimeSaving !== 0
               ? `누적 총 ${formatKRW(allTimeSaving)}`
               : '모아둔 미래 자산'}
           </div>

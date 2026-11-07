@@ -13,6 +13,7 @@ import {
   normalizeDateYMD,
   normalizeTimeHM,
   isSavingTx,
+  isSavingWithdrawTx,
   isPointTx,
   isPointEarnTx,
   getNecessity
@@ -288,7 +289,7 @@ export default function TransactionList({
                       >
                         {/* Left: Icon & Info */}
                         <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                          <CategoryIcon category={point ? '포인트' : t.category} inverted={t.type === 'income' && !point} />
+                          <CategoryIcon category={point ? '포인트' : t.category} inverted={(t.type === 'income' && !point) || isSavingWithdrawTx(t)} />
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-1.5 min-w-0">
                               <span className="text-xs sm:text-sm font-semibold text-zinc-900 truncate">
@@ -297,6 +298,10 @@ export default function TransactionList({
                               {point ? (
                                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-700 font-semibold border border-zinc-200/70 whitespace-nowrap flex-shrink-0">
                                   {pointEarn ? '포인트 적립' : '포인트 사용'}
+                                </span>
+                              ) : isSavingWithdrawTx(t) ? (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-zinc-100 text-zinc-700 border border-zinc-200/80 font-medium whitespace-nowrap flex-shrink-0">
+                                  가용자산 복귀
                                 </span>
                               ) : (
                                 t.payment_method && (
@@ -357,10 +362,14 @@ export default function TransactionList({
                               </span>
                             ) : isSavingTx(t) ? (
                               <span className="inline-flex items-center gap-1 text-xs sm:text-sm font-bold tracking-tight text-zinc-900 whitespace-nowrap">
-                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-800 font-bold border border-zinc-200 whitespace-nowrap">
-                                  저축
+                                <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold whitespace-nowrap ${
+                                  isSavingWithdrawTx(t)
+                                    ? 'bg-zinc-900 text-white shadow-2xs'
+                                    : 'bg-zinc-100 text-zinc-800 border border-zinc-200'
+                                }`}>
+                                  {isSavingWithdrawTx(t) ? '투자 회수' : '저축'}
                                 </span>
-                                {formatKRW(t.amount)}
+                                <span>{isSavingWithdrawTx(t) ? `+${formatKRW(t.amount)}` : formatKRW(t.amount)}</span>
                               </span>
                             ) : (
                               <span
