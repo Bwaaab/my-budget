@@ -1,8 +1,8 @@
 import React from 'react';
-import { Target, PiggyBank } from 'lucide-react';
+import { Target, PiggyBank, Coins, Plus } from 'lucide-react';
 import { formatKRW } from '../constants';
 
-export default function SummaryCards({ stats, pointStats, onOpenPointWallet, onOpenBudgetEdit }) {
+export default function SummaryCards({ stats, onOpenPointAdd, onOpenBudgetEdit }) {
   const {
     totalExpense = 0,
     totalNeedExpense = 0,
@@ -14,14 +14,16 @@ export default function SummaryCards({ stats, pointStats, onOpenPointWallet, onO
     allTimeSaving = 0,
     balance = 0,
     cashBalance,
-    totalPointBalance,
+    totalPointBalance = 0,
+    monthlyPointEarned = 0,
+    monthlyPointUsed = 0,
     monthlyBalance = 0,
     monthlyBudget = 1200000,
     remainingBudget = 0,
     budgetPercent = 0
   } = stats || {};
 
-  const pointBalance = totalPointBalance !== undefined ? totalPointBalance : (pointStats?.currentBalance || 0);
+  const pointBalance = totalPointBalance || 0;
   const actualCashBalance = cashBalance !== undefined ? cashBalance : (balance - pointBalance);
   const isOverBudget = remainingBudget < 0;
 
@@ -78,7 +80,7 @@ export default function SummaryCards({ stats, pointStats, onOpenPointWallet, onO
           <div className="flex items-center justify-between text-xs font-medium text-zinc-500 mb-1 sm:mb-1.5 whitespace-nowrap">
             <span>가용 잔액 (쓸 수 있는 돈)</span>
             {pointBalance > 0 && (
-              <span className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200/60 px-1.5 py-0.2 rounded-md font-semibold">
+              <span className="text-[10px] text-zinc-700 bg-zinc-100 border border-zinc-200 px-1.5 py-0.2 rounded-md font-semibold">
                 포인트 포함
               </span>
             )}
@@ -89,7 +91,7 @@ export default function SummaryCards({ stats, pointStats, onOpenPointWallet, onO
           <div className="mt-1.5 sm:mt-2 text-[11px] text-zinc-400 whitespace-nowrap truncate">
             {pointBalance > 0 ? (
               <span>
-                현금 {formatKRW(actualCashBalance)} + <span className="text-emerald-600 font-semibold">{formatKRW(pointBalance).replace('원', '')}P</span>
+                현금 {formatKRW(actualCashBalance)} + <span className="text-zinc-700 font-semibold">{formatKRW(pointBalance).replace('원', '')}P</span>
               </span>
             ) : monthlyBalance !== 0 ? (
               `이달 증감 ${monthlyBalance > 0 ? `+${formatKRW(monthlyBalance)}` : formatKRW(monthlyBalance)}`
@@ -100,34 +102,32 @@ export default function SummaryCards({ stats, pointStats, onOpenPointWallet, onO
         </div>
       </div>
 
-      {/* Point Wallet Quick Widget */}
-      <div
-        onClick={onOpenPointWallet}
-        className="bg-white hover:bg-zinc-50/80 cursor-pointer rounded-2xl p-3 sm:p-4 border border-zinc-200/80 shadow-xs flex items-center justify-between transition group"
-      >
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="w-8 h-8 rounded-xl bg-[#03c75a] text-white flex items-center justify-center font-black text-sm flex-shrink-0 shadow-xs">
-            N
+      {/* Minimal Monochrome Point Summary Bar */}
+      <div className="bg-white rounded-2xl p-3 sm:p-4 border border-zinc-200/70 shadow-xs flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="w-8 h-8 rounded-xl bg-zinc-100 text-zinc-800 border border-zinc-200/60 flex items-center justify-center flex-shrink-0">
+            <Coins className="w-4 h-4" />
           </div>
           <div className="min-w-0">
             <div className="flex items-center gap-1.5">
-              <span className="text-xs font-bold text-zinc-900">네이버페이 포인트</span>
-              <span className="text-[10px] text-zinc-400 bg-zinc-100 px-1.5 py-0.5 rounded-md font-medium">지갑</span>
+              <span className="text-xs font-bold text-zinc-900">보유 포인트</span>
+              <span className="text-xs font-extrabold text-zinc-900">
+                {formatKRW(pointBalance).replace('원', '')}P
+              </span>
             </div>
-            <div className="text-[11px] text-zinc-500 truncate mt-0.5">
-              이번 달 적립 <span className="text-emerald-600 font-semibold">+{formatKRW(pointStats?.monthlyEarned || 0).replace('원', '')}P</span> · 사용 <span className="text-rose-500 font-semibold">-{formatKRW(pointStats?.monthlyUsed || 0).replace('원', '')}P</span>
+            <div className="text-[11px] text-zinc-400 truncate mt-0.5">
+              이번 달 적립 <span className="text-zinc-700 font-semibold">+{formatKRW(monthlyPointEarned).replace('원', '')}P</span> · 사용 <span className="text-zinc-600 font-semibold">-{formatKRW(monthlyPointUsed).replace('원', '')}P</span>
             </div>
           </div>
         </div>
-        <div className="text-right flex-shrink-0">
-          <div className="text-base sm:text-lg font-black text-zinc-900 group-hover:text-emerald-600 transition flex items-baseline justify-end gap-0.5 leading-none">
-            <span>{formatKRW(pointStats?.currentBalance || 0).replace('원', '')}</span>
-            <span className="text-xs font-bold text-emerald-600">P</span>
-          </div>
-          <div className="text-[10px] text-zinc-400 group-hover:underline mt-1">
-            내역 관리 ↗
-          </div>
-        </div>
+        <button
+          type="button"
+          onClick={onOpenPointAdd}
+          className="px-3 py-1.5 bg-zinc-100 hover:bg-zinc-200/80 text-zinc-800 text-xs font-semibold rounded-xl border border-zinc-200/60 transition active:scale-95 flex items-center gap-1 whitespace-nowrap flex-shrink-0"
+        >
+          <Plus className="w-3.5 h-3.5" />
+          <span>포인트 기록</span>
+        </button>
       </div>
 
       {/* Monthly Budget Tracker Bar */}

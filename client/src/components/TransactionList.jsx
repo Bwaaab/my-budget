@@ -7,7 +7,16 @@ import {
   Sparkles,
   Plus
 } from 'lucide-react';
-import { CATEGORIES, formatKRW, normalizeDateYMD, normalizeTimeHM, isSavingTx, getNecessity } from '../constants';
+import {
+  CATEGORIES,
+  formatKRW,
+  normalizeDateYMD,
+  normalizeTimeHM,
+  isSavingTx,
+  isPointTx,
+  isPointEarnTx,
+  getNecessity
+} from '../constants';
 import CategoryIcon from './CategoryIcon';
 
 export default function TransactionList({
@@ -25,14 +34,16 @@ export default function TransactionList({
 
   // Filtering
   const filtered = transactions.filter((t) => {
-    const saving = isSavingTx(t);
+    const point = isPointTx(t);
+    const saving = !point && isSavingTx(t);
+    if (filterType === 'point' && !point) return false;
     if (filterType === 'saving' && !saving) return false;
-    if (filterType === 'expense' && (t.type !== 'expense' || saving)) return false;
-    if (filterType === 'income' && t.type !== 'income') return false;
+    if (filterType === 'expense' && (t.type !== 'expense' || saving || point)) return false;
+    if (filterType === 'income' && (t.type !== 'income' || point)) return false;
 
     // Necessity filter (only applies to expenses)
     if (filterNecessity !== 'all') {
-      if (t.type !== 'expense' || saving) return false;
+      if (t.type !== 'expense' || saving || point) return false;
       if (getNecessity(t) !== filterNecessity) return false;
     }
 
@@ -56,13 +67,22 @@ export default function TransactionList({
         items: [],
         dayExpense: 0,
         daySaving: 0,
-        dayIncome: 0
+        dayIncome: 0,
+        dayPointEarned: 0,
+        dayPointUsed: 0
       };
     }
     acc[date].items.push(t);
-    if (isSavingTx(t)) acc[date].daySaving += t.amount;
-    else if (t.type === 'expense') acc[date].dayExpense += t.amount;
-    else if (t.type === 'income') acc[date].dayIncome += t.amount;
+    if (isPointTx(t)) {
+      if (isPointEarnTx(t)) acc[date].dayPointEarned += t.amount;
+      else acc[date].dayPointUsed += t.amount;
+    } else if (isSavingTx(t)) {
+      acc[date].daySaving += t.amount;
+    } else if (t.type === 'expense') {
+      acc[date].dayExpense += t.amount;
+    } else if (t.type === 'income') {
+      acc[date].dayIncome += t.amount;
+    }
     return acc;
   }, {});
 
@@ -133,6 +153,17 @@ export default function TransactionList({
               }`}
             >
               수입
+            </button>
+            <button
+              onClick={() => {
+                setFilterType('point');
+                setFilterNecessity('all');
+              }}
+              className={`px-2.5 py-1 rounded-lg transition whitespace-nowrap ${
+                filterType === 'point' ? 'bg-white text-zinc-900 shadow-xs' : 'text-zinc-500 hover:text-zinc-900'
+              }`}
+            >
+              포인트
             </button>
           </div>
 
@@ -235,6 +266,12 @@ export default function TransactionList({
                     {group.dayIncome > 0 && (
                       <span className="text-zinc-800 font-bold whitespace-nowrap">수입 +{formatKRW(group.dayIncome)}</span>
                     )}
+                    {group.dayPointEarned > 0 && (
+                      <span className="text-zinc-700 font-semibold whitespace-nowrap">포인트 +{formatKRW(group.dayPointEarned).replace('원', '')}P</span>
+                    )}
+                    {group.dayPointUsed > 0 && (
+                      <span className="text-zinc-500 whitespace-nowrap">포인트 -{formatKRW(group.dayPointUsed).replace('원', '')}P</span>
+                    )}
                   </div>
                 </div>
 
@@ -242,6 +279,8 @@ export default function TransactionList({
                 <div className="space-y-1">
                   {group.items.map((t) => {
                     const cleanTime = normalizeTimeHM(t.time);
+                    const point = isPointTx(t);
+                    const pointEarn = point && isPointEarnTx(t);
                     return (
                       <div
                         key={t.id}
@@ -249,18 +288,24 @@ export default function TransactionList({
                       >
                         {/* Left: Icon & Info */}
                         <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                          <CategoryIcon category={t.category} inverted={t.type === 'income'} />
+                          <CategoryIcon category={point ? '포인트' : t.category} inverted={t.type === 'income' && !point} />
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-1.5 min-w-0">
                               <span className="text-xs sm:text-sm font-semibold text-zinc-900 truncate">
                                 {t.merchant}
                               </span>
-                              {t.payment_method && (
-                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-500 whitespace-nowrap flex-shrink-0">
-                                  {t.payment_method}
+                              {point ? (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-700 font-semibold border border-zinc-200/70 whitespace-nowrap flex-shrink-0">
+                                  {pointEarn ? '포인트 적립' : '포인트 사용'}
                                 </span>
+                              ) : (
+                                t.payment_method && (
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-500 whitespace-nowrap flex-shrink-0">
+                                    {t.payment_method}
+                                  </span>
+                                )
                               )}
-                              {t.type === 'expense' && !isSavingTx(t) && (
+                              {!point && t.type === 'expense' && !isSavingTx(t) && (
                                 getNecessity(t) === 'want' ? (
                                   <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-200 text-zinc-800 font-semibold border border-zinc-300/60 whitespace-nowrap flex-shrink-0" title="선택 지출 (아낄 수 있었던 돈)">
                                     선택
@@ -288,7 +333,7 @@ export default function TransactionList({
                                   <span className="flex-shrink-0">•</span>
                                 </>
                               )}
-                              <span className="whitespace-nowrap flex-shrink-0">{t.category}</span>
+                              <span className="whitespace-nowrap flex-shrink-0">{point ? '네이버페이 포인트' : t.category}</span>
                               {t.memo && (
                                 <>
                                   <span className="flex-shrink-0">•</span>
@@ -302,7 +347,15 @@ export default function TransactionList({
                         {/* Right: Amount & Actions */}
                         <div className="flex items-center gap-1.5 sm:gap-2.5 flex-shrink-0">
                           <div className="text-right whitespace-nowrap">
-                            {isSavingTx(t) ? (
+                            {point ? (
+                              <span
+                                className={`text-xs sm:text-sm font-bold tracking-tight whitespace-nowrap ${
+                                  pointEarn ? 'text-emerald-600' : 'text-red-800'
+                                }`}
+                              >
+                                {pointEarn ? '+' : '-'}{formatKRW(t.amount).replace('원', '')}P
+                              </span>
+                            ) : isSavingTx(t) ? (
                               <span className="inline-flex items-center gap-1 text-xs sm:text-sm font-bold tracking-tight text-zinc-900 whitespace-nowrap">
                                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-800 font-bold border border-zinc-200 whitespace-nowrap">
                                   저축

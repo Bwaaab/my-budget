@@ -18,7 +18,6 @@ export default function Header({
   onNextMonth,
   onOpenScanner,
   onOpenAddModal,
-  onOpenPointWallet,
   onOpenQrModal,
   onOpenSettingsModal,
   onSyncGoogleSheets,
@@ -107,18 +106,6 @@ export default function Header({
           >
             <QrCode className="w-3.5 h-3.5 text-zinc-600 flex-shrink-0" />
             <span className="hidden lg:inline text-xs whitespace-nowrap">폰 연결</span>
-          </button>
-
-          {/* Point Wallet button */}
-          <button
-            onClick={onOpenPointWallet}
-            className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-xs font-semibold rounded-xl border border-zinc-200/80 bg-white hover:bg-zinc-50 text-zinc-900 transition active:scale-95 shadow-xs whitespace-nowrap flex-shrink-0"
-            title="포인트 지갑 관리"
-          >
-            <span className="w-4 h-4 rounded-md bg-[#03c75a] text-white flex items-center justify-center font-black text-[9px] leading-none">
-              N
-            </span>
-            <span className="hidden xs:inline text-xs">포인트</span>
           </button>
 
           {/* Settings button */}

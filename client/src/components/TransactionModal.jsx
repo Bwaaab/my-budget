@@ -1,6 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { X, Check, Trash2 } from 'lucide-react';
-import { CATEGORIES, PAYMENT_METHODS, formatKRW, isSavingTx, getNecessity, cleanNumber, normalizeDateYMD, normalizeTimeHM, todayYMD, nowHM, getMerchantFieldInfo } from '../constants';
+import {
+  CATEGORIES,
+  PAYMENT_METHODS,
+  formatKRW,
+  isSavingTx,
+  isPointTx,
+  isPointUseTx,
+  getNecessity,
+  cleanNumber,
+  normalizeDateYMD,
+  normalizeTimeHM,
+  todayYMD,
+  nowHM,
+  getMerchantFieldInfo
+} from '../constants';
 
 export default function TransactionModal({
   isOpen,
@@ -13,6 +27,7 @@ export default function TransactionModal({
 
   const [formData, setFormData] = useState({
     type: 'expense',
+    pointMode: 'earn', // 'earn' | 'use'
     necessity: 'need',
     amount: '',
     merchant: '',
@@ -22,27 +37,46 @@ export default function TransactionModal({
     payment_method: '신용카드',
     memo: ''
   });
-  const merchantField = getMerchantFieldInfo(formData.type);
+  const merchantField = getMerchantFieldInfo(formData.type, formData.pointMode);
 
   useEffect(() => {
     if (initialData) {
-      const saving = isSavingTx(initialData);
+      if (initialData.defaultType === 'point' && !initialData.id) {
+        setFormData({
+          type: 'point',
+          pointMode: initialData.pointMode || 'earn',
+          necessity: 'need',
+          amount: '',
+          merchant: '',
+          date: todayYMD(),
+          time: nowHM(),
+          category: '포인트',
+          payment_method: '네이버페이(포인트)',
+          memo: ''
+        });
+        return;
+      }
+
+      const point = isPointTx(initialData);
+      const saving = !point && isSavingTx(initialData);
       setFormData({
         id: initialData.id,
-        type: saving ? 'saving' : initialData.type || 'expense',
+        type: point ? 'point' : saving ? 'saving' : initialData.type || 'expense',
+        pointMode: point && isPointUseTx(initialData) ? 'use' : 'earn',
         necessity: saving ? 'need' : getNecessity(initialData),
         amount: initialData.amount ? String(initialData.amount) : '',
         merchant: initialData.merchant || '',
         date: initialData.date || todayYMD(),
         time: initialData.time || nowHM(),
-        category: saving ? '저축/투자' : initialData.category || '식비',
-        payment_method: initialData.payment_method || (saving ? '계좌이체' : '신용카드'),
+        category: point ? '포인트' : saving ? '저축/투자' : initialData.category || '식비',
+        payment_method: point ? '네이버페이(포인트)' : initialData.payment_method || (saving ? '계좌이체' : '신용카드'),
         memo: initialData.memo || '',
         image_path: initialData.image_path || ''
       });
     } else {
       setFormData({
         type: 'expense',
+        pointMode: 'earn',
         necessity: 'need',
         amount: '',
         merchant: '',
@@ -62,6 +96,23 @@ export default function TransactionModal({
     const cleanAmt = cleanNumber(formData.amount);
     const cleanMerchant = (formData.merchant || '').trim();
     if (!cleanAmt || !cleanMerchant) return;
+
+    if (formData.type === 'point') {
+      const isUse = formData.pointMode === 'use';
+      onSave({
+        ...formData,
+        type: isUse ? 'expense' : 'income',
+        category: '포인트',
+        payment_method: '네이버페이(포인트)',
+        necessity: isUse ? 'need' : undefined,
+        amount: cleanAmt,
+        merchant: cleanMerchant,
+        date: normalizeDateYMD(formData.date),
+        time: normalizeTimeHM(formData.time) || nowHM()
+      });
+      onClose();
+      return;
+    }
 
     onSave({
       ...formData,
@@ -99,7 +150,8 @@ export default function TransactionModal({
                 setFormData({
                   ...formData,
                   type: 'expense',
-                  category: formData.category === '저축/투자' ? '식비' : formData.category
+                  category: ['저축/투자', '포인트'].includes(formData.category) ? '식비' : formData.category,
+                  payment_method: formData.payment_method === '네이버페이(포인트)' ? '신용카드' : formData.payment_method
                 })
               }
               className={`flex-1 py-1.5 rounded-lg transition whitespace-nowrap ${
@@ -134,7 +186,8 @@ export default function TransactionModal({
                 setFormData({
                   ...formData,
                   type: 'income',
-                  category: formData.category === '저축/투자' ? '급여' : formData.category
+                  category: ['저축/투자', '포인트'].includes(formData.category) ? '급여' : formData.category,
+                  payment_method: formData.payment_method === '네이버페이(포인트)' ? '계좌이체' : formData.payment_method
                 })
               }
               className={`flex-1 py-1.5 rounded-lg transition whitespace-nowrap ${
@@ -145,7 +198,61 @@ export default function TransactionModal({
             >
               수입
             </button>
+            <button
+              type="button"
+              onClick={() =>
+                setFormData({
+                  ...formData,
+                  type: 'point',
+                  pointMode: formData.pointMode || 'earn',
+                  category: '포인트',
+                  payment_method: '네이버페이(포인트)'
+                })
+              }
+              className={`flex-1 py-1.5 rounded-lg transition whitespace-nowrap ${
+                formData.type === 'point'
+                  ? 'bg-zinc-900 text-white shadow-xs'
+                  : 'text-zinc-600'
+              }`}
+            >
+              포인트
+            </button>
           </div>
+
+          {/* Point Mode Toggle (Only for point) */}
+          {formData.type === 'point' && (
+            <div>
+              <label className="block text-xs font-semibold text-zinc-700 mb-1">
+                포인트 구분
+              </label>
+              <div className="grid grid-cols-2 gap-1.5 bg-zinc-100 p-1 rounded-xl text-xs font-semibold">
+                <button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, pointMode: 'earn' })}
+                  className={`py-1.5 px-2.5 rounded-lg transition flex items-center justify-center gap-1.5 whitespace-nowrap ${
+                    formData.pointMode !== 'use'
+                      ? 'bg-zinc-900 text-white shadow-xs font-bold'
+                      : 'text-zinc-500 hover:text-zinc-900'
+                  }`}
+                >
+                  <span>+ 적립</span>
+                  <span className={`text-[10px] ${formData.pointMode !== 'use' ? 'text-zinc-300' : 'text-zinc-400'}`}>(모은 포인트)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, pointMode: 'use' })}
+                  className={`py-1.5 px-2.5 rounded-lg transition flex items-center justify-center gap-1.5 whitespace-nowrap ${
+                    formData.pointMode === 'use'
+                      ? 'bg-zinc-900 text-white shadow-xs font-bold'
+                      : 'text-zinc-500 hover:text-zinc-900'
+                  }`}
+                >
+                  <span>- 사용</span>
+                  <span className={`text-[10px] ${formData.pointMode === 'use' ? 'text-zinc-300' : 'text-zinc-400'}`}>(쓴 포인트)</span>
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Necessity Toggle (Only for expense) */}
           {formData.type === 'expense' && (
@@ -187,7 +294,7 @@ export default function TransactionModal({
           {/* Amount */}
           <div>
             <label className="block text-xs font-semibold text-zinc-700 mb-1">
-              금액 (원)
+              {formData.type === 'point' ? '포인트 금액 (P)' : '금액 (원)'}
             </label>
             <div className="relative">
               <input
@@ -199,7 +306,13 @@ export default function TransactionModal({
                 className="w-full text-xl font-extrabold px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-zinc-900 outline-none transition"
               />
               <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-zinc-400">
-                {formData.amount ? formatKRW(formData.amount) : '원'}
+                {formData.amount
+                  ? formData.type === 'point'
+                    ? `${formatKRW(formData.amount).replace('원', '')}P`
+                    : formatKRW(formData.amount)
+                  : formData.type === 'point'
+                  ? 'P'
+                  : '원'}
               </span>
             </div>
           </div>
@@ -246,71 +359,87 @@ export default function TransactionModal({
             </div>
           </div>
 
-          {/* Category Chips */}
-          <div>
-            <label className="block text-xs font-semibold text-zinc-700 mb-1">
-              카테고리
-            </label>
-            <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto p-1 bg-zinc-50 rounded-xl border border-zinc-100">
-              {CATEGORIES.map((cat) => (
-                <button
-                  key={cat.id}
-                  type="button"
-                  onClick={() =>
-                    setFormData({
-                      ...formData,
-                      category: cat.name,
-                      type:
-                        cat.name === '저축/투자'
-                          ? 'saving'
-                          : formData.type === 'saving'
-                          ? 'expense'
-                          : formData.type
-                    })
-                  }
-                  className={`text-[11px] px-2.5 py-1 rounded-lg font-medium transition whitespace-nowrap ${
-                    formData.category === cat.name
-                      ? 'bg-zinc-900 text-white shadow-xs font-bold'
-                      : 'bg-white text-zinc-600 hover:bg-zinc-200/60 border border-zinc-200/50'
-                  }`}
-                >
-                  {cat.name}
-                </button>
-              ))}
-            </div>
-          </div>
+          {/* Category Chips & Payment Method (Hidden when type === 'point' for clean UI) */}
+          {formData.type !== 'point' ? (
+            <>
+              <div>
+                <label className="block text-xs font-semibold text-zinc-700 mb-1">
+                  카테고리
+                </label>
+                <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto p-1 bg-zinc-50 rounded-xl border border-zinc-100">
+                  {CATEGORIES.filter((cat) => cat.name !== '포인트').map((cat) => (
+                    <button
+                      key={cat.id}
+                      type="button"
+                      onClick={() =>
+                        setFormData({
+                          ...formData,
+                          category: cat.name,
+                          type:
+                            cat.name === '저축/투자'
+                              ? 'saving'
+                              : formData.type === 'saving'
+                              ? 'expense'
+                              : formData.type
+                        })
+                      }
+                      className={`text-[11px] px-2.5 py-1 rounded-lg font-medium transition whitespace-nowrap ${
+                        formData.category === cat.name
+                          ? 'bg-zinc-900 text-white shadow-xs font-bold'
+                          : 'bg-white text-zinc-600 hover:bg-zinc-200/60 border border-zinc-200/50'
+                      }`}
+                    >
+                      {cat.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
 
-          {/* Payment Method & Memo */}
-          <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-700 mb-1">
+                    결제 수단
+                  </label>
+                  <select
+                    value={formData.payment_method}
+                    onChange={(e) => setFormData({ ...formData, payment_method: e.target.value })}
+                    className="w-full text-xs px-2.5 py-1.5 bg-zinc-50 border border-zinc-200 rounded-xl outline-none"
+                  >
+                    {PAYMENT_METHODS.map((method) => (
+                      <option key={method} value={method}>
+                        {method}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-700 mb-1">
+                    메모
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="메모를 입력하세요"
+                    value={formData.memo}
+                    onChange={(e) => setFormData({ ...formData, memo: e.target.value })}
+                    className="w-full text-xs px-2.5 py-1.5 bg-zinc-50 border border-zinc-200 rounded-xl outline-none"
+                  />
+                </div>
+              </div>
+            </>
+          ) : (
             <div>
               <label className="block text-xs font-semibold text-zinc-700 mb-1">
-                결제 수단
-              </label>
-              <select
-                value={formData.payment_method}
-                onChange={(e) => setFormData({ ...formData, payment_method: e.target.value })}
-                className="w-full text-xs px-2.5 py-1.5 bg-zinc-50 border border-zinc-200 rounded-xl outline-none"
-              >
-                {PAYMENT_METHODS.map((method) => (
-                  <option key={method} value={method}>
-                    {method}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-zinc-700 mb-1">
-                메모
+                메모 (선택)
               </label>
               <input
                 type="text"
-                placeholder="메모를 입력하세요"
+                placeholder="추가 메모가 있다면 입력하세요"
                 value={formData.memo}
                 onChange={(e) => setFormData({ ...formData, memo: e.target.value })}
-                className="w-full text-xs px-2.5 py-1.5 bg-zinc-50 border border-zinc-200 rounded-xl outline-none"
+                className="w-full text-xs px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl focus:bg-white outline-none"
               />
             </div>
-          </div>
+          )}
 
           {/* Submit Actions */}
           <div className="pt-2 flex items-center gap-2">

@@ -16,6 +16,7 @@ import { CATEGORIES, PAYMENT_METHODS, formatKRW, getNecessity, cleanNumber, norm
 
 const createEmptyAiFormData = () => ({
   type: 'expense',
+  pointMode: 'earn',
   necessity: 'need',
   amount: '',
   merchant: '',
@@ -147,21 +148,26 @@ async function getOrderedAvailableModels(cleanKey) {
 async function analyzeDirectWithGemini(base64Data, mimeType, apiKey) {
   const cleanKey = (apiKey || '').trim();
   const currentYear = new Date().getFullYear();
-  const prompt = `한국 가계부 결제/영수증/이체/투자 캡처 이미지에서 JSON을 추출하세요.
+  const prompt = `한국 가계부 결제/영수증/이체/투자/포인트 캡처 이미지에서 JSON을 추출하세요.
 
 필수 규칙:
-1. amount: 화면의 '수수료 0원', '할인 0원', '혜택 0원' 등이 아니라, **실제로 결제/출금/이체/투자된 총 핵심 금액**을 쉼표 없는 정수 숫자로만 추출하세요. (예: 15000, 4800, 250000). 0원이 아닌 실제 거래 금액을 최우선으로 찾으세요.
+1. amount: 화면의 '수수료 0원', '할인 0원' 등이 아니라, **실제로 결제/출금/이체/투자/적립된 총 핵심 금액**을 쉼표 없는 정수 숫자로만 추출하세요. (예: 15000, 4800, 250000). 만약 네이버페이 포인트 적립/내역 단독 캡처 화면이라면 해당 포인트 금액을 amount로 추출하세요.
 2. date: 거래 일자는 "YYYY-MM-DD" 형식 (연도가 없으면 반드시 현재 연도 ${currentYear} 적용).
-3. merchant: 상호명 또는 가맹점명, 수취인, 투자종목명 (예: "스타벅스", "배달의민족", "토스증권 S&P500", "쿠팡").
-4. type: 일반 지출은 "expense", 주식/ETF/적금/예금/ISA/연금/청약 납입은 "saving", 급여/환급/입금은 "income".
+3. merchant: 상호명, 가맹점명, 수취인, 투자종목명, 또는 포인트 적립/사용 사유 (예: "스타벅스", "배달의민족", "토스증권 S&P500", "네이버페이 구매 적립").
+4. type:
+   - 일반 지출은 "expense"
+   - 주식/ETF/적금/예금/ISA/연금/청약 납입은 "saving"
+   - 급여/환급/입금은 "income"
+   - **네이버페이 등 포인트 적립 내역/이벤트 적립 단독 캡처 화면**이면 "point_earn"
+   - **네이버페이 등 포인트 차감/사용 내역 단독 캡처 화면**이면 "point_use"
 5. necessity: 필수 생활비(기본 식비, 마트, 교통, 공과금, 병원)는 "need", 선택적/아낄 수 있었던 소비(카페/디저트, 배달야식, 쇼핑, 택시, 여가)는 "want".
-6. category: "식비"|"카페/간식"|"마트/생필품"|"교통"|"문화/여가"|"쇼핑"|"의료/건강"|"주거/통신"|"저축/투자"|"급여"|"기타".
-7. payment_method: "카드"|"이체"|"현금" 등.
+6. category: "식비"|"카페/간식"|"마트/생필품"|"교통"|"문화/여가"|"쇼핑"|"의료/건강"|"주거/통신"|"저축/투자"|"급여"|"포인트"|"기타".
+7. payment_method: "신용카드"|"체크카드"|"네이버페이"|"네이버페이(포인트)"|"카카오페이"|"토스페이"|"계좌이체"|"현금" 등.
 8. memo: 핵심 품목 또는 간단 요약.
-9. earned_point: 화면 하단이나 영수증에 "N원 적립", "네이버페이 포인트 N원 적립 완료" 등의 적립 혜택 문구가 보일 경우 적립 포인트 숫자 (없으면 0).
+9. earned_point: 일반 결제/영수증 화면 하단에 부가적으로 "N원 적립", "네이버페이 포인트 N원 적립" 등의 혜택 문구가 함께 보일 경우 적립 포인트 숫자 (없거나 이미 type이 "point_earn"이면 0).
 
 출력 JSON 형식만 반환하세요:
-{"type":"expense","necessity":"need","amount":숫자,"merchant":"상호명","date":"${currentYear}-MM-DD","time":"HH:mm","category":"식비","payment_method":"카드","memo":"품목","earned_point":0}`;
+{"type":"expense","necessity":"need","amount":숫자,"merchant":"상호명","date":"${currentYear}-MM-DD","time":"HH:mm","category":"식비","payment_method":"신용카드","memo":"품목","earned_point":0}`;
 
   const models = await getOrderedAvailableModels(cleanKey);
 
@@ -263,7 +269,7 @@ export default function AiScannerModal({
 
   // Extracted/Edited form state
   const [formData, setFormData] = useState(createEmptyAiFormData);
-  const merchantField = getMerchantFieldInfo(formData.type);
+  const merchantField = getMerchantFieldInfo(formData.type, formData.pointMode);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const fileInputRef = useRef(null);
@@ -341,29 +347,38 @@ export default function AiScannerModal({
       }
 
       if (data.extracted) {
-        const isSaving =
-          data.extracted.type === 'saving' ||
-          data.extracted.category === '저축/투자' ||
-          data.extracted.category === '저축' ||
-          data.extracted.category === '투자';
+        const isPoint =
+          data.extracted.type === 'point' ||
+          data.extracted.type === 'point_earn' ||
+          data.extracted.type === 'point_use' ||
+          data.extracted.category === '포인트' ||
+          data.extracted.payment_method === '네이버페이(포인트)';
 
-        const cleanAmt = cleanNumber(data.extracted.amount);
+        const isSaving =
+          !isPoint &&
+          (data.extracted.type === 'saving' ||
+            data.extracted.category === '저축/투자' ||
+            data.extracted.category === '저축' ||
+            data.extracted.category === '투자');
+
+        const cleanAmt = cleanNumber(data.extracted.amount) || (isPoint ? cleanNumber(data.extracted.earned_point) : 0);
         const cleanDate = normalizeDateYMD(data.extracted.date);
         const cleanTime = normalizeTimeHM(data.extracted.time) || new Date().toTimeString().slice(0, 5);
-        const detectedBonus = cleanNumber(data.extracted.earned_point);
+        const detectedBonus = isPoint ? 0 : cleanNumber(data.extracted.earned_point);
 
         setDetectedEarnedPoint(detectedBonus);
         setRecordPointSync(detectedBonus > 0);
 
         setFormData({
-          type: isSaving ? 'saving' : data.extracted.type || 'expense',
+          type: isPoint ? 'point' : isSaving ? 'saving' : data.extracted.type || 'expense',
+          pointMode: data.extracted.type === 'point_use' ? 'use' : 'earn',
           necessity: isSaving ? 'need' : (data.extracted.necessity || getNecessity(data.extracted)),
           amount: cleanAmt > 0 ? String(cleanAmt) : '',
-          merchant: data.extracted.merchant || '',
+          merchant: data.extracted.merchant || (isPoint ? '네이버페이 포인트 적립' : ''),
           date: cleanDate,
           time: cleanTime,
-          category: isSaving ? '저축/투자' : data.extracted.category || '기타',
-          payment_method: data.extracted.payment_method || (isSaving ? '계좌이체' : '신용카드'),
+          category: isPoint ? '포인트' : isSaving ? '저축/투자' : data.extracted.category || '기타',
+          payment_method: isPoint ? '네이버페이(포인트)' : data.extracted.payment_method || (isSaving ? '계좌이체' : '신용카드'),
           memo: data.extracted.memo || '',
           items: data.extracted.items || [],
           image_path: data.savedImagePath || objectUrl
@@ -429,25 +444,43 @@ export default function AiScannerModal({
       const savedDate = normalizeDateYMD(formData.date) || todayYMD();
       const savedTime = normalizeTimeHM(formData.time) || nowHM();
 
-      onSaveTransaction({
-        ...formData,
-        amount: cleanAmt,
-        merchant: cleanMerchant,
-        date: savedDate,
-        time: savedTime
-      });
-
-      // Synchronously record detected point bonus if toggled
-      if (recordPointSync && detectedEarnedPoint > 0 && onSavePointTransaction) {
-        onSavePointTransaction({
-          provider: '네이버페이',
-          type: 'earn',
-          amount: detectedEarnedPoint,
-          title: `${cleanMerchant} 적립 혜택`,
+      if (formData.type === 'point') {
+        const isUse = formData.pointMode === 'use';
+        onSaveTransaction({
+          ...formData,
+          type: isUse ? 'expense' : 'income',
+          category: '포인트',
+          payment_method: '네이버페이(포인트)',
+          necessity: isUse ? 'need' : undefined,
+          amount: cleanAmt,
+          merchant: cleanMerchant,
           date: savedDate,
-          time: savedTime,
-          memo: 'AI 캡처 적립 문구 자동 인식'
+          time: savedTime
         });
+      } else {
+        onSaveTransaction({
+          ...formData,
+          amount: cleanAmt,
+          merchant: cleanMerchant,
+          date: savedDate,
+          time: savedTime
+        });
+
+        // Synchronously record detected point bonus into the unified transaction list if toggled
+        if (recordPointSync && detectedEarnedPoint > 0) {
+          setTimeout(() => {
+            onSaveTransaction({
+              type: 'income',
+              category: '포인트',
+              payment_method: '네이버페이(포인트)',
+              amount: detectedEarnedPoint,
+              merchant: `${cleanMerchant} 포인트 적립`,
+              date: savedDate,
+              time: savedTime,
+              memo: 'AI 캡처 적립 혜택 자동 인식'
+            });
+          }, 50);
+        }
       }
 
       onClose();
@@ -657,7 +690,8 @@ export default function AiScannerModal({
                       setFormData({
                         ...formData,
                         type: 'expense',
-                        category: formData.category === '저축/투자' ? '식비' : formData.category
+                        category: ['저축/투자', '포인트'].includes(formData.category) ? '식비' : formData.category,
+                        payment_method: formData.payment_method === '네이버페이(포인트)' ? '신용카드' : formData.payment_method
                       })
                     }
                     className={`flex-1 py-1.5 rounded-lg transition whitespace-nowrap ${
@@ -692,7 +726,8 @@ export default function AiScannerModal({
                       setFormData({
                         ...formData,
                         type: 'income',
-                        category: formData.category === '저축/투자' ? '급여' : formData.category
+                        category: ['저축/투자', '포인트'].includes(formData.category) ? '급여' : formData.category,
+                        payment_method: formData.payment_method === '네이버페이(포인트)' ? '계좌이체' : formData.payment_method
                       })
                     }
                     className={`flex-1 py-1.5 rounded-lg transition whitespace-nowrap ${
@@ -703,7 +738,61 @@ export default function AiScannerModal({
                   >
                     수입
                   </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setFormData({
+                        ...formData,
+                        type: 'point',
+                        pointMode: formData.pointMode || 'earn',
+                        category: '포인트',
+                        payment_method: '네이버페이(포인트)'
+                      })
+                    }
+                    className={`flex-1 py-1.5 rounded-lg transition whitespace-nowrap ${
+                      formData.type === 'point'
+                        ? 'bg-zinc-900 text-white shadow-xs'
+                        : 'text-zinc-600'
+                    }`}
+                  >
+                    포인트
+                  </button>
                 </div>
+
+                {/* Point Mode Toggle (Only for point) */}
+                {formData.type === 'point' && (
+                  <div>
+                    <label className="block text-xs font-semibold text-zinc-700 mb-1">
+                      포인트 구분
+                    </label>
+                    <div className="grid grid-cols-2 gap-1.5 bg-zinc-100 p-1 rounded-xl text-xs font-semibold">
+                      <button
+                        type="button"
+                        onClick={() => setFormData({ ...formData, pointMode: 'earn' })}
+                        className={`py-1.5 px-2.5 rounded-lg transition flex items-center justify-center gap-1.5 whitespace-nowrap ${
+                          formData.pointMode !== 'use'
+                            ? 'bg-zinc-900 text-white shadow-xs font-bold'
+                            : 'text-zinc-500 hover:text-zinc-900'
+                        }`}
+                      >
+                        <span>+ 적립</span>
+                        <span className={`text-[10px] ${formData.pointMode !== 'use' ? 'text-zinc-300' : 'text-zinc-400'}`}>(모은 포인트)</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setFormData({ ...formData, pointMode: 'use' })}
+                        className={`py-1.5 px-2.5 rounded-lg transition flex items-center justify-center gap-1.5 whitespace-nowrap ${
+                          formData.pointMode === 'use'
+                            ? 'bg-zinc-900 text-white shadow-xs font-bold'
+                            : 'text-zinc-500 hover:text-zinc-900'
+                        }`}
+                      >
+                        <span>- 사용</span>
+                        <span className={`text-[10px] ${formData.pointMode === 'use' ? 'text-zinc-300' : 'text-zinc-400'}`}>(쓴 포인트)</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {/* Necessity Toggle (Only for expense) */}
                 {formData.type === 'expense' && (
@@ -745,7 +834,7 @@ export default function AiScannerModal({
                 {/* Amount */}
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    금액 (원)
+                    {formData.type === 'point' ? '포인트 금액 (P)' : '금액 (원)'}
                   </label>
                   <div className="relative">
                     <input
@@ -757,7 +846,13 @@ export default function AiScannerModal({
                       className="w-full text-lg sm:text-xl font-extrabold px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-zinc-900 outline-none transition"
                     />
                     <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-zinc-400">
-                      {formData.amount ? formatKRW(formData.amount) : '원'}
+                      {formData.amount
+                        ? formData.type === 'point'
+                          ? `${formatKRW(formData.amount).replace('원', '')}P`
+                          : formatKRW(formData.amount)
+                        : formData.type === 'point'
+                        ? 'P'
+                        : '원'}
                     </span>
                   </div>
                 </div>
@@ -781,7 +876,7 @@ export default function AiScannerModal({
                 <div className="grid grid-cols-2 gap-2">
                   <div>
                     <label className="block text-xs font-semibold text-zinc-700 mb-1">
-                      결제 일자
+                      일자
                     </label>
                     <input
                       type="date"
@@ -804,86 +899,102 @@ export default function AiScannerModal({
                   </div>
                 </div>
 
-                {/* Category Chips */}
-                <div>
-                  <label className="block text-xs font-semibold text-zinc-700 mb-1">
-                    카테고리
-                  </label>
-                  <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto p-1 bg-zinc-50 rounded-xl border border-zinc-100">
-                    {CATEGORIES.map((cat) => (
-                      <button
-                        key={cat.id}
-                        type="button"
-                        onClick={() =>
-                          setFormData({
-                            ...formData,
-                            category: cat.name,
-                            type:
-                              cat.name === '저축/투자'
-                                ? 'saving'
-                                : formData.type === 'saving'
-                                ? 'expense'
-                                : formData.type
-                          })
-                        }
-                        className={`text-[11px] px-2.5 py-1 rounded-lg font-medium transition whitespace-nowrap ${
-                          formData.category === cat.name
-                            ? 'bg-zinc-900 text-white shadow-xs font-bold'
-                            : 'bg-white text-zinc-600 hover:bg-zinc-100 border border-zinc-200/50'
-                        }`}
-                      >
-                        {cat.name}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+                {/* Category Chips & Payment Method (Hidden when type === 'point') */}
+                {formData.type !== 'point' ? (
+                  <>
+                    <div>
+                      <label className="block text-xs font-semibold text-zinc-700 mb-1">
+                        카테고리
+                      </label>
+                      <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto p-1 bg-zinc-50 rounded-xl border border-zinc-100">
+                        {CATEGORIES.filter((cat) => cat.name !== '포인트').map((cat) => (
+                          <button
+                            key={cat.id}
+                            type="button"
+                            onClick={() =>
+                              setFormData({
+                                ...formData,
+                                category: cat.name,
+                                type:
+                                  cat.name === '저축/투자'
+                                    ? 'saving'
+                                    : formData.type === 'saving'
+                                    ? 'expense'
+                                    : formData.type
+                              })
+                            }
+                            className={`text-[11px] px-2.5 py-1 rounded-lg font-medium transition whitespace-nowrap ${
+                              formData.category === cat.name
+                                ? 'bg-zinc-900 text-white shadow-xs font-bold'
+                                : 'bg-white text-zinc-600 hover:bg-zinc-100 border border-zinc-200/50'
+                            }`}
+                          >
+                            {cat.name}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
 
-                {/* Payment Method & Memo */}
-                <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                          결제 수단
+                        </label>
+                        <select
+                          value={formData.payment_method}
+                          onChange={(e) => setFormData({ ...formData, payment_method: e.target.value })}
+                          className="w-full text-xs px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white outline-none"
+                        >
+                          {PAYMENT_METHODS.map((method) => (
+                            <option key={method} value={method}>
+                              {method}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                          메모 / 품목
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="품목명이나 간단한 메모"
+                          value={formData.memo}
+                          onChange={(e) => setFormData({ ...formData, memo: e.target.value })}
+                          className="w-full text-xs px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white outline-none"
+                        />
+                      </div>
+                    </div>
+                  </>
+                ) : (
                   <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      결제 수단
-                    </label>
-                    <select
-                      value={formData.payment_method}
-                      onChange={(e) => setFormData({ ...formData, payment_method: e.target.value })}
-                      className="w-full text-xs px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white outline-none"
-                    >
-                      {PAYMENT_METHODS.map((method) => (
-                        <option key={method} value={method}>
-                          {method}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      메모 / 품목
+                    <label className="block text-xs font-semibold text-zinc-700 mb-1">
+                      메모 (선택)
                     </label>
                     <input
                       type="text"
-                      placeholder="품목명이나 간단한 메모"
+                      placeholder="추가 메모가 있다면 입력하세요"
                       value={formData.memo}
                       onChange={(e) => setFormData({ ...formData, memo: e.target.value })}
-                      className="w-full text-xs px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white outline-none"
+                      className="w-full text-xs px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl focus:bg-white outline-none"
                     />
                   </div>
-                </div>
+                )}
 
                 {/* Detected Point Bonus Sync Toggle */}
-                {detectedEarnedPoint > 0 && (
-                  <div className="p-3 bg-emerald-50/90 border border-emerald-200/90 rounded-2xl flex items-center justify-between animate-fade-in">
-                    <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-emerald-950">
+                {formData.type !== 'point' && detectedEarnedPoint > 0 && (
+                  <div className="p-3 bg-zinc-50 border border-zinc-200 rounded-2xl flex items-center justify-between animate-fade-in">
+                    <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-zinc-900">
                       <input
                         type="checkbox"
                         checked={recordPointSync}
                         onChange={(e) => setRecordPointSync(e.target.checked)}
-                        className="w-4 h-4 rounded text-emerald-600 accent-emerald-600 cursor-pointer"
+                        className="w-4 h-4 rounded text-zinc-900 accent-zinc-900 cursor-pointer"
                       />
-                      <span>🅿️ 네이버페이 포인트 +{formatKRW(detectedEarnedPoint).replace('원', '')}P 적립도 함께 기록</span>
+                      <span>네이버페이 포인트 +{formatKRW(detectedEarnedPoint).replace('원', '')}P 적립도 함께 기록</span>
                     </label>
-                    <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded-full">
-                      캡처 자동 감지
+                    <span className="text-[10px] font-semibold text-zinc-600 bg-zinc-200/70 px-2 py-0.5 rounded-full">
+                      자동 감지
                     </span>
                   </div>
                 )}

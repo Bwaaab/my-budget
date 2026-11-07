@@ -10,6 +10,7 @@ export const CATEGORIES = [
   { id: '금융/보험', name: '금융/보험', icon: 'Landmark', color: 'bg-zinc-100 text-zinc-700 border-zinc-200' },
   { id: '저축/투자', name: '저축/투자', icon: 'PiggyBank', color: 'bg-zinc-100 text-zinc-700 border-zinc-200' },
   { id: '급여', name: '급여', icon: 'Coins', color: 'bg-zinc-100 text-zinc-700 border-zinc-200' },
+  { id: '포인트', name: '포인트', icon: 'Coins', color: 'bg-zinc-100 text-zinc-700 border-zinc-200' },
   { id: '기타', name: '기타', icon: 'MoreHorizontal', color: 'bg-zinc-100 text-zinc-600 border-zinc-200' }
 ];
 
@@ -58,10 +59,22 @@ export const CATEGORY_COLORS = {
   '금융/보험': '#1e293b',
   '저축/투자': '#18181b',
   '급여': '#27272a',
+  '포인트': '#27272a',
   '기타': '#94a3b8'
 };
 
-export function getMerchantFieldInfo(type) {
+export function getMerchantFieldInfo(type, pointMode = 'earn') {
+  if (type === 'point') {
+    return pointMode === 'use'
+      ? {
+          label: '포인트 사용처 / 내용',
+          placeholder: '예: 네이버쇼핑 포인트 결제, 배달의민족'
+        }
+      : {
+          label: '포인트 적립처 / 내용',
+          placeholder: '예: 네이버페이 구매 적립, 영수증 리뷰, 이벤트'
+        };
+  }
   if (type === 'saving') {
     return {
       label: '저축·투자처 / 상품명',
@@ -83,6 +96,31 @@ export function getMerchantFieldInfo(type) {
 export function isSavingTx(t) {
   if (!t) return false;
   return t.type === 'saving' || t.category === '저축/투자' || t.category === '저축' || t.category === '투자';
+}
+
+export function isPointTx(t) {
+  if (!t) return false;
+  return (
+    t.type === 'point' ||
+    t.type === 'point_earn' ||
+    t.type === 'point_use' ||
+    t.category === '포인트' ||
+    t.category === '포인트 적립' ||
+    t.category === '포인트 사용' ||
+    t.payment_method === '네이버페이(포인트)'
+  );
+}
+
+export function isPointEarnTx(t) {
+  if (!isPointTx(t)) return false;
+  if (t.type === 'point_earn' || t.category === '포인트 적립') return true;
+  if (t.type === 'point_use' || t.category === '포인트 사용') return false;
+  return t.type === 'income';
+}
+
+export function isPointUseTx(t) {
+  if (!isPointTx(t)) return false;
+  return !isPointEarnTx(t);
 }
 
 export const NECESSITY_OPTIONS = [

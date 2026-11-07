@@ -11,12 +11,13 @@ import SettingsModal from './components/SettingsModal';
 import ReceiptViewerModal from './components/ReceiptViewerModal';
 import MobileBottomNav from './components/MobileBottomNav';
 import Wishlist from './components/Wishlist';
-import PointWalletModal from './components/PointWalletModal';
 import { Sparkles, UploadCloud, Smartphone, Wallet, Heart } from 'lucide-react';
 import {
   normalizeDateYMD,
   normalizeTimeHM,
   isSavingTx,
+  isPointTx,
+  isPointEarnTx,
   getNecessity,
   cleanNumber,
   todayYMD,
@@ -32,13 +33,12 @@ import {
   enqueueSheetQuery,
   removePendingSheetQuery,
   getLocalPointTransactions,
-  setLocalPointTransactions,
-  computePointStats
+  setLocalPointTransactions
 } from './constants';
 import { getSheetsToken, setSheetsToken, ensureSheetsToken, buildSheetsGetUrl } from './sheetsAuth';
 
 // Helper: Client-side stats computation (used on GitHub Pages / Serverless)
-function computeClientStats(txList, year, month, monthlyBudget = 1200000, startDay = 1, pointList = []) {
+function computeClientStats(txList, year, month, monthlyBudget = 1200000, startDay = 1) {
   const range = getBudgetMonthRange(year, month, startDay);
   const allTx = txList || [];
   const monthlyTx = allTx.filter(t => {
@@ -54,10 +54,16 @@ function computeClientStats(txList, year, month, monthlyBudget = 1200000, startD
   let allTimeSaving = 0;
   let allTimeIncome = 0;
   let allTimeExpense = 0;
+  let totalPointBalance = 0;
+  let monthlyPointEarned = 0;
+  let monthlyPointUsed = 0;
 
   for (const t of allTx) {
     const amt = Number(t.amount) || 0;
-    if (isSavingTx(t)) {
+    if (isPointTx(t)) {
+      if (isPointEarnTx(t)) totalPointBalance += amt;
+      else totalPointBalance -= amt;
+    } else if (isSavingTx(t)) {
       allTimeSaving += amt;
     } else if (t.type === 'income') {
       allTimeIncome += amt;
@@ -66,10 +72,9 @@ function computeClientStats(txList, year, month, monthlyBudget = 1200000, startD
     }
   }
 
-  // Calculate cumulative point balance across all point providers
-  let totalPointBalance = 0;
-  const pList = pointList && pointList.length > 0 ? pointList : getLocalPointTransactions();
-  for (const p of (pList || [])) {
+  // Include any unmigrated legacy point transactions if present
+  const legacyPoints = getLocalPointTransactions();
+  for (const p of (legacyPoints || [])) {
     const amt = cleanNumber(p.amount);
     if (p.type === 'earn') totalPointBalance += amt;
     else if (p.type === 'use') totalPointBalance -= amt;
@@ -84,7 +89,10 @@ function computeClientStats(txList, year, month, monthlyBudget = 1200000, startD
   for (const t of monthlyTx) {
     const amt = Number(t.amount) || 0;
     const cleanDate = normalizeDateYMD(t.date);
-    if (isSavingTx(t)) {
+    if (isPointTx(t)) {
+      if (isPointEarnTx(t)) monthlyPointEarned += amt;
+      else monthlyPointUsed += amt;
+    } else if (isSavingTx(t)) {
       totalSaving += amt;
       if (dailyMap[cleanDate]) dailyMap[cleanDate].saving += amt;
     } else if (t.type === 'expense') {
@@ -135,6 +143,8 @@ function computeClientStats(txList, year, month, monthlyBudget = 1200000, startD
     allTimeSaving,
     cashBalance,
     totalPointBalance,
+    monthlyPointEarned,
+    monthlyPointUsed,
     balance,
     monthlyBalance,
     monthlyBudget,
@@ -269,25 +279,11 @@ export default function App() {
   const [isTxModalOpen, setIsTxModalOpen] = useState(false);
   const [isQrModalOpen, setIsQrModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
-  const [isPointModalOpen, setIsPointModalOpen] = useState(false);
   const [viewingReceiptPath, setViewingReceiptPath] = useState('');
   const [editingTx, setEditingTx] = useState(null);
   const [initialFileForScanner, setInitialFileForScanner] = useState(null);
   const [initialFileForWishlistScanner, setInitialFileForWishlistScanner] = useState(null);
   const [currentView, setCurrentView] = useState('budget'); // 'budget' | 'wishlist'
-
-  // Point Wallet State
-  const [pointTransactions, setPointTransactions] = useState(() => {
-    return getLocalPointTransactions();
-  });
-  const [selectedPointProvider, setSelectedPointProvider] = useState('네이버페이');
-
-  const pointStats = computePointStats(
-    pointTransactions,
-    selectedPointProvider,
-    currentDate.getFullYear(),
-    currentDate.getMonth() + 1
-  );
 
   const [activeMobileTab, setActiveMobileTab] = useState('overview');
   const [isDraggingOver, setIsDraggingOver] = useState(false);
@@ -410,8 +406,7 @@ export default function App() {
     const localList = getRecoveredLocalTransactions();
     const b = Number(localStorage.getItem('budget_monthly_target')) || Number(settings?.monthly_budget) || 1200000;
     const startDay = Number(curStart) || Number(settings?.month_start_day) || 1;
-    const pList = getLocalPointTransactions();
-    setStats(computeClientStats(localList, curY, curM, b, startDay, pList));
+    setStats(computeClientStats(localList, curY, curM, b, startDay));
   }, [year, month, settings?.monthly_budget, settings?.month_start_day, monthStartDay]);
 
   // 3. Fetch Settings (Never overwrites localStorage with empty server values)
@@ -471,68 +466,48 @@ export default function App() {
     } catch (_) {}
   }, []);
 
-  // 5. Fetch Points (Hybrid: backend SQLite or LocalStorage)
+  // 5. Migrate any legacy separate point transactions into unified transactions + Google Sheets queue
   const fetchPoints = useCallback(async () => {
-    try {
-      if (!window.location.hostname.includes('github.io')) {
-        const res = await fetch('/api/points');
-        if (res.ok) {
-          const list = await res.json();
-          if (Array.isArray(list)) {
-            setPointTransactions(list);
-            setLocalPointTransactions(list);
-            return;
-          }
-        }
+    const legacy = getLocalPointTransactions();
+    if (!Array.isArray(legacy) || legacy.length === 0) return;
+
+    let list = getRecoveredLocalTransactions();
+    const existingIds = new Set(list.map(t => String(t.id)));
+    let migratedAny = false;
+
+    for (const p of legacy) {
+      const txId = p.id || Date.now() + Math.floor(Math.random() * 1000);
+      if (!existingIds.has(String(txId))) {
+        const isUse = p.type === 'use';
+        const migratedTx = {
+          id: txId,
+          type: isUse ? 'expense' : 'income',
+          category: '포인트',
+          payment_method: '네이버페이(포인트)',
+          necessity: isUse ? 'need' : undefined,
+          amount: cleanNumber(p.amount),
+          merchant: p.title || (isUse ? '포인트 사용' : '포인트 적립'),
+          date: normalizeDateYMD(p.date),
+          time: normalizeTimeHM(p.time) || nowHM(),
+          memo: p.memo || '',
+          updatedAt: Date.now(),
+          synced: false
+        };
+        list.push(migratedTx);
+        enqueueSheetQuery({ action: 'add_transaction', id: migratedTx.id, payload: migratedTx });
+        migratedAny = true;
       }
-    } catch (_) {}
-    const local = getLocalPointTransactions();
-    setPointTransactions(local);
-  }, []);
-
-  // Point Transaction Handlers
-  const handleSavePoint = useCallback(async (newPoint) => {
-    const pointWithId = {
-      ...newPoint,
-      id: newPoint.id || Date.now() + Math.floor(Math.random() * 1000)
-    };
-    setPointTransactions(prev => {
-      const next = [pointWithId, ...prev.filter(p => p.id !== pointWithId.id)];
-      setLocalPointTransactions(next);
-      return next;
-    });
-
-    if (!window.location.hostname.includes('github.io')) {
-      try {
-        await fetch('/api/points', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(pointWithId)
-        });
-      } catch (_) {}
     }
 
-    fetchStats();
-    const typeLabel = pointWithId.type === 'earn' ? '적립' : '사용';
-    showToast(`🅿️ ${pointWithId.provider} 포인트 ${typeLabel} (${formatKRW(pointWithId.amount).replace('원', '')}P) 완료!`);
-  }, [fetchStats]);
-
-  const handleDeletePoint = useCallback(async (id) => {
-    setPointTransactions(prev => {
-      const next = prev.filter(p => p.id !== id);
-      setLocalPointTransactions(next);
-      return next;
-    });
-
-    if (!window.location.hostname.includes('github.io')) {
-      try {
-        await fetch(`/api/points/${id}`, { method: 'DELETE' });
-      } catch (_) {}
+    setLocalPointTransactions([]);
+    if (migratedAny) {
+      list = sortTransactionsLatestFirst(list);
+      localStorage.setItem('budget_local_transactions', JSON.stringify(list));
+      saveSafeAutoBackupSnapshot(list);
+      fetchTransactions();
+      fetchStats();
     }
-
-    fetchStats();
-    showToast('포인트 내역이 삭제되었습니다.');
-  }, [fetchStats]);
+  }, [fetchTransactions, fetchStats]);
 
   // Google Sheets Full Sync (Smart Merge: Preserves unsynced local records + syncs Wishlist & Settings)
   const handleSyncGoogleSheets = useCallback(async (overrideUrl, overrideLocalBudget, silent = false) => {
@@ -1195,7 +1170,6 @@ export default function App() {
           setEditingTx(null);
           setIsTxModalOpen(true);
         }}
-        onOpenPointWallet={() => setIsPointModalOpen(true)}
         onOpenQrModal={() => setIsQrModalOpen(true)}
         onOpenSettingsModal={() => setIsSettingsModalOpen(true)}
         onSyncGoogleSheets={() => handleSyncGoogleSheets()}
@@ -1323,8 +1297,10 @@ export default function App() {
             {/* 1. Monthly Overview Cards */}
             <SummaryCards
               stats={stats}
-              pointStats={pointStats}
-              onOpenPointWallet={() => setIsPointModalOpen(true)}
+              onOpenPointAdd={() => {
+                setEditingTx({ defaultType: 'point', pointMode: 'earn' });
+                setIsTxModalOpen(true);
+              }}
               onOpenBudgetEdit={() => setIsSettingsModalOpen(true)}
             />
 
@@ -1363,22 +1339,9 @@ export default function App() {
           setInitialFileForScanner(null);
         }}
         onSaveTransaction={handleSaveTransaction}
-        onSavePointTransaction={handleSavePoint}
         hasApiKey={settings?.hasApiKey}
         onSaveApiKey={(key) => handleSaveSettings({ gemini_api_key: key })}
         initialFile={initialFileForScanner}
-      />
-
-      <PointWalletModal
-        isOpen={isPointModalOpen}
-        onClose={() => setIsPointModalOpen(false)}
-        points={pointTransactions}
-        pointStats={pointStats}
-        selectedProvider={selectedPointProvider}
-        onChangeProvider={setSelectedPointProvider}
-        onSavePoint={handleSavePoint}
-        onDeletePoint={handleDeletePoint}
-        onSaveTransaction={handleSaveTransaction}
       />
 
       <WishlistAiScannerModal

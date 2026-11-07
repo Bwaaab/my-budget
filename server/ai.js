@@ -36,14 +36,14 @@ async function recognizeReceiptOrCapture(imageBuffer, mimeType = 'image/jpeg', a
 입력된 이미지(종이 영수증, 모바일 카드 결제 문자/푸시 알림 캡처, 토스/카카오페이 송금 및 결제 내역, 배달의민족 등 주문 영수증)를 정밀하게 분석하여 가계부에 입력할 정보를 JSON 형식으로만 추출하세요.
 
 추출 규칙:
-1. type: 일반 지출은 "expense", 저축·투자(주식/ETF/코인 매수, 적금/예금/청약/ISA/연금/증권계좌 납입·이체)는 "saving", 수입이나 환급/입금은 "income"
+1. type: 일반 지출은 "expense", 저축·투자(주식/ETF/코인 매수, 적금/예금/청약/ISA/연금/증권계좌 납입·이체)는 "saving", 수입이나 환급/입금은 "income", 네이버페이 등 포인트 적립 내역 단독 캡처 화면은 "point_earn", 포인트 사용/차감 내역 단독 캡처 화면은 "point_use"
 2. necessity: 지출(expense)인 경우 필수 생활비(기본 식사, 장보기, 통근 교통, 주거, 공과금, 의료 등)는 "need", 선택적/아낄 수 있었던 지출(카페/간식, 디저트, 외식, 배달야식, 쇼핑, 문화/취미, 택시 등)은 "want"
-3. amount: 영수증/화면의 '수수료 0원', '할인 0원', '혜택 0원' 등 부가 항목이 아니라, **실제로 결제/출금/이체/투자된 총 핵심 금액**을 쉼표 없는 정수 숫자로만 추출하세요. (절대 0원으로 추출하지 마세요. 화면에 거래 금액이 있다면 그 금액을 최우선으로 추출하세요.)
-4. merchant: 상호명 또는 투자 종목/증권사/수취인 이름 (예: "스타벅스 강남점", "토스증권 S&P500", "주택청약종합저축", "배달의민족", "쿠팡" 등).
+3. amount: 영수증/화면의 '수수료 0원', '할인 0원', '혜택 0원' 등 부가 항목이 아니라, **실제로 결제/출금/이체/투자/적립된 총 핵심 금액**을 쉼표 없는 정수 숫자로만 추출하세요. (절대 0원으로 추출하지 마세요. 화면에 거래 금액이나 포인트 적립 금액이 있다면 그 금액을 최우선으로 추출하세요.)
+4. merchant: 상호명 또는 투자 종목/증권사/수취인 이름, 또는 포인트 적립/사용 사유 (예: "스타벅스 강남점", "토스증권 S&P500", "네이버페이 구매 적립", "배달의민족" 등).
 5. date: 결제/거래 일자 ("YYYY-MM-DD" 형식). 연도가 없으면 현재 연도(${new Date().getFullYear()})를 기본값으로 사용.
 6. time: 결제/거래 시각 ("HH:mm" 형식). 파악 불가 시 현재 시각 기준.
 7. category: 내용에 가장 어울리는 카테고리 하나를 다음 중 선택:
-   ["식비", "카페/간식", "마트/생필품", "교통", "문화/여가", "쇼핑", "의료/건강", "주거/통신", "저축/투자", "급여", "기타"]
+   ["식비", "카페/간식", "마트/생필품", "교통", "문화/여가", "쇼핑", "의료/건강", "주거/통신", "저축/투자", "급여", "포인트", "기타"]
 7. payment_method: 결제 수단 (예: "신한카드", "국민카드", "현대카드", "체크카드", "카카오페이", "토스페이", "계좌이체", "현금" 등). 카드사나 결제앱 이름이 보이면 구체적으로 작성.
 8. memo: 주요 품목이나 간단한 메모 (예: "아메리카노 외 1건", "점심 식사", "생필품 구매" 등).
 9. items: 영수증에 개별 품목 목록이 보일 경우 [{ "name": "품목명", "price": 금액(숫자), "count": 수량(숫자) }] 형태로 추출 (없으면 빈 배열 []).
@@ -110,23 +110,30 @@ async function recognizeReceiptOrCapture(imageBuffer, mimeType = 'image/jpeg', a
       const cleanJson = text.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim();
       const parsed = JSON.parse(cleanJson);
 
+      const isPoint =
+        parsed.type === 'point' ||
+        parsed.type === 'point_earn' ||
+        parsed.type === 'point_use' ||
+        parsed.category === '포인트';
+
       const isSaving =
-        parsed.type === 'saving' ||
-        parsed.category === '저축/투자' ||
-        parsed.category === '저축' ||
-        parsed.category === '투자';
+        !isPoint &&
+        (parsed.type === 'saving' ||
+          parsed.category === '저축/투자' ||
+          parsed.category === '저축' ||
+          parsed.category === '투자');
 
       return {
         success: true,
         extracted: {
-          type: isSaving ? 'saving' : parsed.type === 'income' ? 'income' : 'expense',
+          type: isPoint ? (parsed.type === 'point_use' ? 'point_use' : 'point_earn') : isSaving ? 'saving' : parsed.type === 'income' ? 'income' : 'expense',
           necessity: isSaving ? 'need' : (parsed.necessity === 'want' ? 'want' : 'need'),
           amount: typeof parsed.amount === 'number' ? Math.abs(Math.round(parsed.amount)) : (Number(String(parsed.amount || '').replace(/[^0-9]/g, '')) || 0),
           merchant: parsed.merchant || '미상',
           date: parsed.date || getTodayYMD(),
           time: parsed.time || getNowHM(),
-          category: isSaving ? '저축/투자' : parsed.category || '기타',
-          payment_method: parsed.payment_method || '카드',
+          category: isPoint ? '포인트' : isSaving ? '저축/투자' : parsed.category || '기타',
+          payment_method: isPoint ? '네이버페이(포인트)' : parsed.payment_method || '카드',
           memo: parsed.memo || '',
           items: Array.isArray(parsed.items) ? parsed.items : [],
           raw_summary: parsed.raw_summary || '',
