@@ -1036,136 +1036,102 @@ export default function AiScannerModal({
 
                     {/* Scrollable Item Cards */}
                     <div className="space-y-2 max-h-[380px] overflow-y-auto pr-1">
-                      {batchItems.map((item, index) => {
+                      {batchItems.map((item) => {
                         const isPoint = item.type === 'point';
                         const isSaving = item.type === 'saving';
+                        const combinedTypeVal = isPoint
+                          ? item.pointMode === 'use'
+                            ? 'point_use'
+                            : 'point_earn'
+                          : isSaving
+                          ? 'saving'
+                          : item.type === 'income'
+                          ? 'income'
+                          : item.necessity === 'want'
+                          ? 'expense_want'
+                          : 'expense_need';
+
+                        const handleCombinedTypeChange = (val) => {
+                          if (val === 'expense_need') {
+                            handleUpdateBatchItem(item.tempId, { type: 'expense', necessity: 'need' });
+                          } else if (val === 'expense_want') {
+                            handleUpdateBatchItem(item.tempId, { type: 'expense', necessity: 'want' });
+                          } else if (val === 'saving') {
+                            handleUpdateBatchItem(item.tempId, { type: 'saving' });
+                          } else if (val === 'income') {
+                            handleUpdateBatchItem(item.tempId, { type: 'income' });
+                          } else if (val === 'point_earn') {
+                            handleUpdateBatchItem(item.tempId, { type: 'point', pointMode: 'earn' });
+                          } else if (val === 'point_use') {
+                            handleUpdateBatchItem(item.tempId, { type: 'point', pointMode: 'use' });
+                          }
+                        };
+
                         return (
                           <div
                             key={item.tempId}
-                            className={`p-3 rounded-2xl border transition space-y-2 ${
+                            className={`p-2.5 sm:p-3 rounded-2xl border transition space-y-2 ${
                               item.checked !== false
                                 ? 'bg-white border-zinc-200 shadow-2xs'
                                 : 'bg-zinc-50/60 border-zinc-200/50 opacity-55'
                             }`}
                           >
-                            {/* Row 1: Checkbox + Index + Type Selector Pills + Delete */}
-                            <div className="flex flex-wrap items-center justify-between gap-1.5">
-                              <div className="flex items-center gap-2">
+                            {/* Row 1: Checkbox + Single Capsule Dropdown + Date + Delete (Single non-wrapping line) */}
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-2 min-w-0">
                                 <input
                                   type="checkbox"
                                   checked={item.checked !== false}
                                   onChange={(e) =>
                                     handleUpdateBatchItem(item.tempId, { checked: e.target.checked })
                                   }
-                                  className="w-4 h-4 rounded accent-zinc-900 cursor-pointer"
+                                  className="w-4 h-4 rounded accent-zinc-900 cursor-pointer flex-shrink-0"
                                 />
-                                <span className="text-[11px] font-bold text-zinc-400">
-                                  #{index + 1}
-                                </span>
 
-                                {/* Compact Type & Necessity Pills */}
-                                <div className="flex flex-wrap bg-zinc-100 p-0.5 rounded-lg text-[11px] font-semibold">
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      handleUpdateBatchItem(item.tempId, {
-                                        type: 'expense',
-                                        necessity: 'need'
-                                      })
-                                    }
-                                    className={`px-2 py-0.5 rounded-md transition whitespace-nowrap ${
-                                      item.type === 'expense' && item.necessity !== 'want'
-                                        ? 'bg-zinc-900 text-white font-bold'
-                                        : 'text-zinc-500 hover:text-zinc-900'
-                                    }`}
-                                  >
-                                    지출(필수)
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      handleUpdateBatchItem(item.tempId, {
-                                        type: 'expense',
-                                        necessity: 'want'
-                                      })
-                                    }
-                                    className={`px-2 py-0.5 rounded-md transition whitespace-nowrap ${
-                                      item.type === 'expense' && item.necessity === 'want'
-                                        ? 'bg-zinc-900 text-white font-bold'
-                                        : 'text-zinc-500 hover:text-zinc-900'
-                                    }`}
-                                  >
-                                    지출(선택)
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      handleUpdateBatchItem(item.tempId, { type: 'saving' })
-                                    }
-                                    className={`px-2 py-0.5 rounded-md transition whitespace-nowrap ${
-                                      isSaving
-                                        ? 'bg-zinc-900 text-white font-bold'
-                                        : 'text-zinc-500 hover:text-zinc-900'
-                                    }`}
-                                  >
-                                    저축·투자
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      handleUpdateBatchItem(item.tempId, { type: 'income' })
-                                    }
-                                    className={`px-2 py-0.5 rounded-md transition whitespace-nowrap ${
-                                      item.type === 'income'
-                                        ? 'bg-zinc-900 text-white font-bold'
-                                        : 'text-zinc-500 hover:text-zinc-900'
-                                    }`}
-                                  >
+                                <select
+                                  value={combinedTypeVal}
+                                  onChange={(e) => handleCombinedTypeChange(e.target.value)}
+                                  className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-zinc-900 text-white border border-zinc-900 outline-none cursor-pointer"
+                                >
+                                  <option value="expense_need" className="bg-white text-zinc-900">
+                                    지출 · 필수
+                                  </option>
+                                  <option value="expense_want" className="bg-white text-zinc-900">
+                                    지출 · 선택
+                                  </option>
+                                  <option value="saving" className="bg-white text-zinc-900">
+                                    저축 · 투자
+                                  </option>
+                                  <option value="income" className="bg-white text-zinc-900">
                                     수입
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      handleUpdateBatchItem(item.tempId, {
-                                        type: 'point',
-                                        pointMode: 'earn'
-                                      })
-                                    }
-                                    className={`px-2 py-0.5 rounded-md transition whitespace-nowrap ${
-                                      isPoint && item.pointMode !== 'use'
-                                        ? 'bg-zinc-900 text-white font-bold'
-                                        : 'text-zinc-500 hover:text-zinc-900'
-                                    }`}
-                                  >
-                                    포인트+
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      handleUpdateBatchItem(item.tempId, {
-                                        type: 'point',
-                                        pointMode: 'use'
-                                      })
-                                    }
-                                    className={`px-2 py-0.5 rounded-md transition whitespace-nowrap ${
-                                      isPoint && item.pointMode === 'use'
-                                        ? 'bg-zinc-900 text-white font-bold'
-                                        : 'text-zinc-500 hover:text-zinc-900'
-                                    }`}
-                                  >
-                                    포인트-
-                                  </button>
-                                </div>
+                                  </option>
+                                  <option value="point_earn" className="bg-white text-zinc-900">
+                                    포인트 +적립
+                                  </option>
+                                  <option value="point_use" className="bg-white text-zinc-900">
+                                    포인트 -사용
+                                  </option>
+                                </select>
                               </div>
 
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveBatchItem(item.tempId)}
-                                className="p-1 text-zinc-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
-                                title="이 항목 삭제"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
+                              <div className="flex items-center gap-1.5 flex-shrink-0">
+                                <input
+                                  type="date"
+                                  value={item.date}
+                                  onChange={(e) =>
+                                    handleUpdateBatchItem(item.tempId, { date: e.target.value })
+                                  }
+                                  className="text-[11px] font-medium text-zinc-600 px-2 py-1 bg-zinc-50 border border-zinc-200 rounded-lg outline-none"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveBatchItem(item.tempId)}
+                                  className="p-1 text-zinc-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition flex-shrink-0"
+                                  title="이 항목 삭제"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
                             </div>
 
                             {/* Row 2: Merchant & Amount */}
@@ -1205,72 +1171,41 @@ export default function AiScannerModal({
                               </div>
                             </div>
 
-                            {/* Row 3: Date + Category + Payment Method + Memo */}
-                            <div className="grid grid-cols-12 gap-1.5">
-                              <div className={isPoint ? 'col-span-5' : 'col-span-4'}>
-                                <input
-                                  type="date"
-                                  value={item.date}
+                            {/* Row 3: Category & Payment Method (2 wide columns, hidden for Point items) */}
+                            {!isPoint && (
+                              <div className="grid grid-cols-2 gap-2">
+                                <select
+                                  value={item.category}
                                   onChange={(e) =>
-                                    handleUpdateBatchItem(item.tempId, { date: e.target.value })
+                                    handleUpdateBatchItem(item.tempId, {
+                                      category: e.target.value
+                                    })
                                   }
-                                  className="w-full text-[11px] px-2 py-1 bg-zinc-50 border border-zinc-200 rounded-lg outline-none"
-                                />
+                                  className="w-full text-[11px] text-zinc-700 px-2.5 py-1.5 bg-zinc-50 border border-zinc-200 rounded-xl outline-none"
+                                >
+                                  {CATEGORIES.filter((c) => c.name !== '포인트').map((c) => (
+                                    <option key={c.id} value={c.name}>
+                                      {c.name}
+                                    </option>
+                                  ))}
+                                </select>
+                                <select
+                                  value={item.payment_method}
+                                  onChange={(e) =>
+                                    handleUpdateBatchItem(item.tempId, {
+                                      payment_method: e.target.value
+                                    })
+                                  }
+                                  className="w-full text-[11px] text-zinc-700 px-2.5 py-1.5 bg-zinc-50 border border-zinc-200 rounded-xl outline-none"
+                                >
+                                  {PAYMENT_METHODS.map((m) => (
+                                    <option key={m} value={m}>
+                                      {m}
+                                    </option>
+                                  ))}
+                                </select>
                               </div>
-
-                              {!isPoint && (
-                                <>
-                                  <div className="col-span-4">
-                                    <select
-                                      value={item.category}
-                                      onChange={(e) =>
-                                        handleUpdateBatchItem(item.tempId, {
-                                          category: e.target.value
-                                        })
-                                      }
-                                      className="w-full text-[11px] px-2 py-1 bg-zinc-50 border border-zinc-200 rounded-lg outline-none"
-                                    >
-                                      {CATEGORIES.filter((c) => c.name !== '포인트').map((c) => (
-                                        <option key={c.id} value={c.name}>
-                                          {c.name}
-                                        </option>
-                                      ))}
-                                    </select>
-                                  </div>
-                                  <div className="col-span-4">
-                                    <select
-                                      value={item.payment_method}
-                                      onChange={(e) =>
-                                        handleUpdateBatchItem(item.tempId, {
-                                          payment_method: e.target.value
-                                        })
-                                      }
-                                      className="w-full text-[11px] px-2 py-1 bg-zinc-50 border border-zinc-200 rounded-lg outline-none"
-                                    >
-                                      {PAYMENT_METHODS.map((m) => (
-                                        <option key={m} value={m}>
-                                          {m}
-                                        </option>
-                                      ))}
-                                    </select>
-                                  </div>
-                                </>
-                              )}
-
-                              {isPoint && (
-                                <div className="col-span-7">
-                                  <input
-                                    type="text"
-                                    placeholder="메모 (선택)"
-                                    value={item.memo}
-                                    onChange={(e) =>
-                                      handleUpdateBatchItem(item.tempId, { memo: e.target.value })
-                                    }
-                                    className="w-full text-[11px] px-2 py-1 bg-zinc-50 border border-zinc-200 rounded-lg outline-none"
-                                  />
-                                </div>
-                              )}
-                            </div>
+                            )}
                           </div>
                         );
                       })}
