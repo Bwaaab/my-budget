@@ -324,6 +324,15 @@ function doPost(e) {
       return jsonResponse_({ success: true });
     }
 
+    // 카테고리별 예산 저장
+    if (action === 'update_category_budgets') {
+      var settingsSheet = ss.getSheetByName('설정');
+      if (!settingsSheet) settingsSheet = ss.insertSheet('설정');
+      settingsSheet.getRange(4, 1).setValue('category_budgets');
+      settingsSheet.getRange(4, 2).setValue(JSON.stringify(payload.category_budgets || {}));
+      return jsonResponse_({ success: true });
+    }
+
     return jsonResponse_({ success: true });
   } finally {
     lock.releaseLock();
@@ -338,7 +347,8 @@ export default function SettingsModal({
   monthStartDay = 1,
   onSaveSettings,
   onRefreshData,
-  onSyncGoogleSheets
+  onSyncGoogleSheets,
+  onOpenCategoryBudgetModal
 }) {
   const [apiKey, setApiKey] = useState(() => localStorage.getItem('budget_gemini_key') || settings?.gemini_api_key || '');
   const [showApiKey, setShowApiKey] = useState(false);
@@ -687,10 +697,12 @@ export default function SettingsModal({
     try {
       const transactions = JSON.parse(localStorage.getItem('budget_local_transactions') || '[]');
       const wishlist = JSON.parse(localStorage.getItem('budget_wishlist') || '[]');
+      const categoryBudgets = JSON.parse(localStorage.getItem('budget_category_budgets') || '{}');
       const backupData = {
         exported_at: new Date().toISOString(),
         monthly_target: Number(localStorage.getItem('budget_monthly_target')) || 0,
         month_start_day: Number(localStorage.getItem('budget_month_start_day')) || 1,
+        category_budgets: categoryBudgets,
         transactions,
         wishlist
       };
@@ -728,6 +740,9 @@ export default function SettingsModal({
 
       if (Array.isArray(json.wishlist)) {
         localStorage.setItem('budget_wishlist', JSON.stringify(json.wishlist));
+      }
+      if (json.category_budgets && typeof json.category_budgets === 'object') {
+        localStorage.setItem('budget_category_budgets', JSON.stringify(json.category_budgets));
       }
       if (json.monthly_target !== undefined) {
         localStorage.setItem('budget_monthly_target', String(json.monthly_target));
@@ -1009,6 +1024,20 @@ export default function SettingsModal({
                 {formatKRW(budget)}
               </span>
             </div>
+
+            {onOpenCategoryBudgetModal && (
+              <div className="flex items-center justify-between pt-1">
+                <span className="text-[11px] text-zinc-400">카테고리별로 세부 예산을 나누려면?</span>
+                <button
+                  type="button"
+                  onClick={onOpenCategoryBudgetModal}
+                  className="px-2.5 py-1 text-xs font-semibold text-zinc-800 bg-zinc-100 hover:bg-zinc-200 rounded-lg border border-zinc-200 transition active:scale-95 flex items-center gap-1 cursor-pointer"
+                >
+                  <Target className="w-3 h-3 text-zinc-600" />
+                  <span>카테고리별 예산 배분</span>
+                </button>
+              </div>
+            )}
           </div>
 
           <hr className="border-zinc-100" />

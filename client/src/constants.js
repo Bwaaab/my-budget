@@ -519,3 +519,32 @@ export function computePointStats(pointList, provider = '네이버페이', year,
     monthlyUsed
   };
 }
+
+export const EXPENSE_BUDGET_CATEGORIES = [
+  '식비',
+  '카페/간식',
+  '마트/생필품',
+  '교통',
+  '쇼핑',
+  '문화/여가',
+  '의료/건강',
+  '주거/통신',
+  '금융/보험',
+  '기타'
+];
+
+export function getStoredCategoryBudgets() {
+  try {
+    const raw = localStorage.getItem('budget_category_budgets');
+    return raw ? JSON.parse(raw) : {};
+  } catch (e) {
+    return {};
+  }
+}
+
+export function setStoredCategoryBudgets(budgets) {
+  try {
+    localStorage.setItem('budget_category_budgets', JSON.stringify(budgets || {}));
+  } catch (e) {}
+}
+

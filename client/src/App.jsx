@@ -11,6 +11,7 @@ import SettingsModal from './components/SettingsModal';
 import ReceiptViewerModal from './components/ReceiptViewerModal';
 import MobileBottomNav from './components/MobileBottomNav';
 import Wishlist from './components/Wishlist';
+import CategoryBudgetModal from './components/CategoryBudgetModal';
 import { Sparkles, UploadCloud, Smartphone, Wallet, Heart } from 'lucide-react';
 import {
   normalizeDateYMD,
@@ -33,12 +34,14 @@ import {
   enqueueSheetQuery,
   removePendingSheetQuery,
   getLocalPointTransactions,
-  setLocalPointTransactions
+  setLocalPointTransactions,
+  getStoredCategoryBudgets,
+  setStoredCategoryBudgets
 } from './constants';
 import { getSheetsToken, setSheetsToken, ensureSheetsToken, buildSheetsGetUrl } from './sheetsAuth';
 
 // Helper: Client-side stats computation (used on GitHub Pages / Serverless)
-function computeClientStats(txList, year, month, monthlyBudget = 1200000, startDay = 1) {
+function computeClientStats(txList, year, month, monthlyBudget = 1200000, startDay = 1, categoryBudgets = null) {
   const range = getBudgetMonthRange(year, month, startDay);
   const allTx = txList || [];
   const monthlyTx = allTx.filter(t => {
@@ -127,6 +130,29 @@ function computeClientStats(txList, year, month, monthlyBudget = 1200000, startD
     percentage: totalExpense > 0 ? Math.round((catMap[k] / totalExpense) * 100) : 0
   })).sort((a, b) => b.amount - a.amount);
 
+  // Category Budget Tracking
+  const activeBudgets = categoryBudgets !== null && categoryBudgets !== undefined
+    ? categoryBudgets
+    : getStoredCategoryBudgets();
+  const categoryBudgetStats = Object.keys(activeBudgets || {})
+    .filter(cat => Number(activeBudgets[cat]) > 0)
+    .map(cat => {
+      const budget = Number(activeBudgets[cat]) || 0;
+      const spent = catMap[cat] || 0;
+      const remaining = budget - spent;
+      const percent = budget > 0 ? Math.round((spent / budget) * 100) : 0;
+      const isOver = remaining < 0;
+      return {
+        category: cat,
+        budget,
+        spent,
+        remaining,
+        percent,
+        isOver
+      };
+    })
+    .sort((a, b) => b.budget - a.budget);
+
   return {
     year,
     month,
@@ -151,6 +177,7 @@ function computeClientStats(txList, year, month, monthlyBudget = 1200000, startD
     remainingBudget,
     budgetPercent,
     categories,
+    categoryBudgetStats,
     dailyTrend: Object.values(dailyMap)
   };
 }
@@ -279,6 +306,8 @@ export default function App() {
   const [isTxModalOpen, setIsTxModalOpen] = useState(false);
   const [isQrModalOpen, setIsQrModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const [isCategoryBudgetModalOpen, setIsCategoryBudgetModalOpen] = useState(false);
+  const [categoryBudgets, setCategoryBudgets] = useState(() => getStoredCategoryBudgets());
   const [viewingReceiptPath, setViewingReceiptPath] = useState('');
   const [editingTx, setEditingTx] = useState(null);
   const [initialFileForScanner, setInitialFileForScanner] = useState(null);
@@ -356,7 +385,7 @@ export default function App() {
   const latestPeriodRef = useRef({ year, month, monthStartDay });
   latestPeriodRef.current = { year, month, monthStartDay };
 
-  // Keep stats in sync whenever transactions, year, month, monthly_budget, or monthStartDay change
+  // Keep stats in sync whenever transactions, year, month, monthly_budget, categoryBudgets, or monthStartDay change
   useEffect(() => {
     const b = Number(settings?.monthly_budget) || Number(localStorage.getItem('budget_monthly_target')) || 1200000;
     const startDay = Number(monthStartDay) || Number(settings?.month_start_day) || Number(localStorage.getItem('budget_month_start_day')) || 1;
@@ -368,8 +397,8 @@ export default function App() {
         if (Array.isArray(parsed) && parsed.length >= allTx.length) allTx = parsed;
       }
     } catch (_) {}
-    setStats(computeClientStats(allTx, year, month, b, startDay));
-  }, [transactions, year, month, settings?.monthly_budget, settings?.month_start_day, monthStartDay]);
+    setStats(computeClientStats(allTx, year, month, b, startDay, categoryBudgets));
+  }, [transactions, year, month, settings?.monthly_budget, settings?.month_start_day, monthStartDay, categoryBudgets]);
 
   // 1. Fetch Transactions (Merges localStorage + auto-recovery snapshot & optional local server)
   const fetchTransactions = useCallback(async () => {
@@ -1262,6 +1291,25 @@ export default function App() {
     }
   };
 
+  // Save Category Budgets
+  const handleSaveCategoryBudgets = (newBudgets) => {
+    setCategoryBudgets(newBudgets);
+    setStoredCategoryBudgets(newBudgets);
+    const b = Number(settings?.monthly_budget) || Number(localStorage.getItem('budget_monthly_target')) || 1200000;
+    const startDay = Number(monthStartDay) || Number(settings?.month_start_day) || 1;
+    const localList = getRecoveredLocalTransactions();
+    setStats(computeClientStats(localList, year, month, b, startDay, newBudgets));
+    showToast('🎯 카테고리별 예산이 안전하게 저장되었습니다.');
+
+    const sheetsUrl = (settings?.google_sheets_url || localStorage.getItem('budget_sheets_url') || '').trim();
+    if (sheetsUrl) {
+      postToGoogleSheets(sheetsUrl, {
+        action: 'update_category_budgets',
+        category_budgets: newBudgets
+      }).catch(() => {});
+    }
+  };
+
   return (
     <div className="min-h-screen bg-zinc-50/80 pb-24 md:pb-12 relative flex flex-col font-sans text-zinc-800 w-full max-w-full overflow-x-hidden">
       {/* Toast Notification */}
@@ -1427,6 +1475,7 @@ export default function App() {
                 setIsTxModalOpen(true);
               }}
               onOpenBudgetEdit={() => setIsSettingsModalOpen(true)}
+              onOpenCategoryBudgetModal={() => setIsCategoryBudgetModalOpen(true)}
             />
 
             {/* 2. Visual Charts (Category donut + Daily trend) */}
@@ -1527,6 +1576,18 @@ export default function App() {
           fetchStats();
         }}
         onSyncGoogleSheets={handleSyncGoogleSheets}
+        onOpenCategoryBudgetModal={() => {
+          setIsSettingsModalOpen(false);
+          setIsCategoryBudgetModalOpen(true);
+        }}
+      />
+
+      <CategoryBudgetModal
+        isOpen={isCategoryBudgetModalOpen}
+        onClose={() => setIsCategoryBudgetModalOpen(false)}
+        categoryBudgets={categoryBudgets}
+        monthlyBudget={Number(settings?.monthly_budget) || Number(localStorage.getItem('budget_monthly_target')) || 1200000}
+        onSaveCategoryBudgets={handleSaveCategoryBudgets}
       />
 
       <ReceiptViewerModal
