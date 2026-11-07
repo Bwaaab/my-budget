@@ -1,0 +1,25 @@
+{
+  "name": "가계부 - AI 스마트 자산관리",
+  "short_name": "가계부",
+  "description": "AI 영수증·위시리스트 캡처 인식 및 구글 시트 연동 가계부",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#fafafa",
+  "theme_color": "#09090b",
+  "icons": [
+    {
+      "src": "./icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "./icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
