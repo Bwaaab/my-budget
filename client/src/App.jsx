@@ -861,18 +861,22 @@ export default function App() {
     const handleDrop = (e) => {
       e.preventDefault();
       setIsDraggingOver(false);
-      if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-        const file = e.dataTransfer.files[0];
-        if (file.type.startsWith('image/')) {
+      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+        const imageFiles = Array.from(e.dataTransfer.files).filter((f) => f.type.startsWith('image/'));
+        if (imageFiles.length > 0) {
           const isWishlistMode = isWishlistScannerOpen || (!isScannerOpen && currentView === 'wishlist');
           if (isWishlistMode) {
-            setInitialFileForWishlistScanner(file);
+            setInitialFileForWishlistScanner(imageFiles[0]);
             setIsWishlistScannerOpen(true);
             showToast('🛍️ 드롭된 상품 이미지를 감지하여 위시리스트 AI 분석을 시작합니다!');
           } else {
-            setInitialFileForScanner(file);
+            setInitialFileForScanner(imageFiles.length === 1 ? imageFiles[0] : imageFiles);
             setIsScannerOpen(true);
-            showToast('📸 드롭된 영수증 이미지를 감지하여 가계부 AI 분석을 시작합니다!');
+            showToast(
+              imageFiles.length > 1
+                ? `📸 드롭된 ${imageFiles.length}장의 캡처 이미지를 일괄 분석합니다!`
+                : '📸 드롭된 영수증 이미지를 감지하여 가계부 AI 분석을 시작합니다!'
+            );
           }
         }
       }
@@ -982,6 +986,127 @@ export default function App() {
           } catch (_) {}
         }
       });
+    }
+  };
+
+  // Save Multiple Transactions in a single batch (from Multi-Transaction AI Scanner)
+  const handleSaveMultipleTransactions = (rawList) => {
+    if (!Array.isArray(rawList) || rawList.length === 0) return;
+    if (rawList.length === 1) {
+      handleSaveTransaction(rawList[0]);
+      return;
+    }
+
+    const baseTs = Date.now();
+    const preparedList = rawList.map((rawData, idx) => {
+      const point = isPointTx(rawData);
+      const saving = !point && isSavingTx(rawData);
+      const isPointUse = point && (rawData.pointMode === 'use' || rawData.type === 'point_use' || rawData.type === 'expense');
+      const finalType = point
+        ? isPointUse
+          ? 'expense'
+          : 'income'
+        : saving
+        ? 'saving'
+        : rawData.type || 'expense';
+      const finalCategory = point ? '포인트' : saving ? '저축/투자' : rawData.category || '기타';
+      const finalMethod = point
+        ? '네이버페이(포인트)'
+        : rawData.payment_method || (saving ? '계좌이체' : '신용카드');
+      const necessity = point
+        ? isPointUse
+          ? 'need'
+          : undefined
+        : saving
+        ? undefined
+        : rawData.necessity || (finalType === 'expense' ? getNecessity(rawData) : 'need');
+
+      const uniqueTs = baseTs + idx;
+      return {
+        ...rawData,
+        id: uniqueTs,
+        type: finalType,
+        category: finalCategory,
+        payment_method: finalMethod,
+        necessity,
+        amount: cleanNumber(rawData.amount),
+        merchant: (rawData.merchant || '').trim() || '미상',
+        date: normalizeDateYMD(rawData.date),
+        time: normalizeTimeHM(rawData.time) || nowHM(),
+        updatedAt: uniqueTs,
+        synced: false
+      };
+    });
+
+    // 1. Update LocalStorage & state atomically
+    let list = [];
+    try {
+      const saved = localStorage.getItem('budget_local_transactions');
+      list = saved ? JSON.parse(saved) : [];
+    } catch (_) {}
+
+    list = sortTransactionsLatestFirst([...preparedList, ...list]);
+    localStorage.setItem('budget_local_transactions', JSON.stringify(list));
+    saveSafeAutoBackupSnapshot(list);
+
+    const firstDate = preparedList[0].date;
+    const parts = firstDate.split('-').map(Number);
+    const txYear = parts[0];
+    const txMonth = parts[1];
+    const txDay = parts[2] || 1;
+    const range = getBudgetMonthRange(year, month, monthStartDay);
+
+    if (!isNaN(txYear) && !isNaN(txMonth) && (firstDate < range.startDate || firstDate > range.endDate)) {
+      const targetDate = getActiveBudgetMonth(new Date(txYear, txMonth - 1, txDay), monthStartDay);
+      setCurrentDate(targetDate);
+      const tY = targetDate.getFullYear();
+      const tM = targetDate.getMonth() + 1;
+      latestPeriodRef.current = { year: tY, month: tM, monthStartDay };
+      const targetRange = getBudgetMonthRange(tY, tM, monthStartDay);
+      setTransactions(
+        list.filter((t) => {
+          const d = normalizeDateYMD(t.date);
+          return d >= targetRange.startDate && d <= targetRange.endDate;
+        })
+      );
+    } else {
+      setTransactions(
+        list.filter((t) => {
+          const d = normalizeDateYMD(t.date);
+          return d >= range.startDate && d <= range.endDate;
+        })
+      );
+    }
+
+    fetchStats();
+    showToast(`🎉 총 ${preparedList.length}건의 내역이 가계부에 일괄 등록되었습니다!`);
+
+    // 2. Background sync to local server & Google Sheets
+    const sheetsUrl = (settings?.google_sheets_url || localStorage.getItem('budget_sheets_url') || '').trim();
+    for (const item of preparedList) {
+      try {
+        fetch('/api/transactions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(item)
+        }).catch(() => {});
+      } catch (_) {}
+
+      const queryId = enqueueSheetQuery({ action: 'add_transaction', id: item.id, payload: item });
+      if (sheetsUrl) {
+        postToGoogleSheets(sheetsUrl, { action: 'add_transaction', ...item }).then((ok) => {
+          if (ok) {
+            if (queryId) removePendingSheetQuery(queryId);
+            try {
+              const cur = JSON.parse(localStorage.getItem('budget_local_transactions') || '[]');
+              const updated = cur.map((row) =>
+                String(row.id) === String(item.id) ? { ...row, synced: true } : row
+              );
+              localStorage.setItem('budget_local_transactions', JSON.stringify(updated));
+            } catch (_) {}
+          }
+        });
+      }
     }
   };
 
@@ -1339,6 +1464,7 @@ export default function App() {
           setInitialFileForScanner(null);
         }}
         onSaveTransaction={handleSaveTransaction}
+        onSaveMultipleTransactions={handleSaveMultipleTransactions}
         hasApiKey={settings?.hasApiKey}
         onSaveApiKey={(key) => handleSaveSettings({ gemini_api_key: key })}
         initialFile={initialFileForScanner}

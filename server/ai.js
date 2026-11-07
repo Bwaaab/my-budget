@@ -31,27 +31,32 @@ async function recognizeReceiptOrCapture(imageBuffer, mimeType = 'image/jpeg', a
 
   const base64Data = imageBuffer.toString('base64');
 
+  const currentYear = new Date().getFullYear();
   const systemInstruction = `
-당신은 한국 가계부 지출/수입 영수증 및 결제 내역 캡처본 분석 전문 AI입니다.
-입력된 이미지(종이 영수증, 모바일 카드 결제 문자/푸시 알림 캡처, 토스/카카오페이 송금 및 결제 내역, 배달의민족 등 주문 영수증)를 정밀하게 분석하여 가계부에 입력할 정보를 JSON 형식으로만 추출하세요.
+당신은 한국 가계부 지출/수입/저축/포인트 영수증 및 결제·입출금 내역 캡처본 분석 전문 AI입니다.
+입력된 이미지를 정밀하게 분석하여 가계부에 입력할 거래 내역들을 JSON 형식({"transactions": [...]})으로 추출하세요.
 
-추출 규칙:
-1. type: 일반 지출은 "expense", 저축·투자(주식/ETF/코인 매수, 적금/예금/청약/ISA/연금/증권계좌 납입·이체)는 "saving", 수입이나 환급/입금은 "income", 네이버페이 등 포인트 적립 내역 단독 캡처 화면은 "point_earn", 포인트 사용/차감 내역 단독 캡처 화면은 "point_use"
-2. necessity: 지출(expense)인 경우 필수 생활비(기본 식사, 장보기, 통근 교통, 주거, 공과금, 의료 등)는 "need", 선택적/아낄 수 있었던 지출(카페/간식, 디저트, 외식, 배달야식, 쇼핑, 문화/취미, 택시 등)은 "want"
-3. amount: 영수증/화면의 '수수료 0원', '할인 0원', '혜택 0원' 등 부가 항목이 아니라, **실제로 결제/출금/이체/투자/적립된 총 핵심 금액**을 쉼표 없는 정수 숫자로만 추출하세요. (절대 0원으로 추출하지 마세요. 화면에 거래 금액이나 포인트 적립 금액이 있다면 그 금액을 최우선으로 추출하세요.)
-4. merchant: 상호명 또는 투자 종목/증권사/수취인 이름, 또는 포인트 적립/사용 사유 (예: "스타벅스 강남점", "토스증권 S&P500", "네이버페이 구매 적립", "배달의민족" 등).
-5. date: 결제/거래 일자 ("YYYY-MM-DD" 형식). 연도가 없으면 현재 연도(${new Date().getFullYear()})를 기본값으로 사용.
-6. time: 결제/거래 시각 ("HH:mm" 형식). 파악 불가 시 현재 시각 기준.
-7. category: 내용에 가장 어울리는 카테고리 하나를 다음 중 선택:
+[핵심 판별 규칙: 단건 영수증 vs 다중 거래 내역 리스트]
+- **단일 결제 영수증 / 단건 송금·결제 상세 캡처** (예: 마트/식당 종이 영수증 1장, 배달앱 주문 상세 1건):
+  세부 품목(사과, 우유 등)이 여러 줄 있더라도 실제로는 1번의 결제이므로 합계 금액 기준 **1개의 거래**로 추출하세요. (단, 화면에 "네이버페이 포인트 N원 적립" 같은 포인트 혜택이 함께 보이면 earned_point에 숫자를 넣으세요.)
+- **다중 거래 내역 리스트 화면** (예: 은행/토스/카카오페이 입출금·결제 내역 목록, 카드사 승인내역 리스트, 네이버페이 포인트 적립/사용 내역 목록, 결제 문자 알림 목록):
+  화면에 나열된 **서로 다른 각각의 거래/결제/입금/적립 내역 줄을 위에서부터 빠짐없이 개별 거래 객체로 분리**하여 "transactions" 배열에 모두 담으세요! (각 행의 잔액 표시는 거래 금액이 아니므로 제외하세요.)
+
+각 거래 항목(transaction) 추출 규칙:
+1. type: 일반 지출은 "expense", 저축·투자(주식/ETF/적금/예금/청약/ISA/연금 납입)는 "saving", 급여/환급/입금은 "income", 포인트 적립 내역은 "point_earn", 포인트 사용/차감 내역은 "point_use"
+2. necessity: 지출(expense)인 경우 필수 생활비(기본 식사, 장보기, 교통, 주거, 공과금, 의료 등)는 "need", 선택적/아낄 수 있었던 소비(카페/간식, 디저트, 외식, 배달야식, 쇼핑, 문화/취미, 택시 등)는 "want"
+3. amount: 수수료 0원이나 거래 후 잔액이 아닌, **실제 해당 건의 거래/결제/이체/적립 금액**을 쉼표 없는 정수 숫자로 추출하세요.
+4. merchant: 상호명, 가맹점명, 수취인, 투자종목명, 또는 포인트 적립/사용 사유 (예: "스타벅스 강남점", "토스증권 S&P500", "네이버페이 구매 적립", "배달의민족").
+5. date: 거래 일자 ("YYYY-MM-DD" 형식). 연도가 없으면 현재 연도(${currentYear})를 적용하세요.
+6. time: 거래 시각 ("HH:mm" 형식). 파악 불가 시 현재 시각 기준.
+7. category: 내용에 가장 어울리는 카테고리 하나를 선택:
    ["식비", "카페/간식", "마트/생필품", "교통", "문화/여가", "쇼핑", "의료/건강", "주거/통신", "저축/투자", "급여", "포인트", "기타"]
-7. payment_method: 결제 수단 (예: "신한카드", "국민카드", "현대카드", "체크카드", "카카오페이", "토스페이", "계좌이체", "현금" 등). 카드사나 결제앱 이름이 보이면 구체적으로 작성.
-8. memo: 주요 품목이나 간단한 메모 (예: "아메리카노 외 1건", "점심 식사", "생필품 구매" 등).
-9. items: 영수증에 개별 품목 목록이 보일 경우 [{ "name": "품목명", "price": 금액(숫자), "count": 수량(숫자) }] 형태로 추출 (없으면 빈 배열 []).
-10. raw_summary: 전체 요약 1문장 (예: "스타벅스 강남점에서 신한카드로 12,500원 결제")
-11. earned_point: 영수증이나 결제 캡처 화면에 "N원 적립", "네이버페이 포인트 N원 적립 완료", "포인트 N원 적립" 등의 적립 혜택 문구가 보일 경우 적립 포인트 금액을 쉼표 없는 정수 숫자로 추출 (없으면 0).
-12. used_point: 화면에 네이버페이 포인트 등 "포인트 사용 N원" 문구가 보일 경우 사용한 포인트 금액을 쉼표 없는 정수 숫자로 추출 (없으면 0).
+8. payment_method: 결제 수단 ("신용카드", "체크카드", "네이버페이", "네이버페이(포인트)", "카카오페이", "토스페이", "계좌이체", "현금" 등).
+9. memo: 주요 품목이나 간단한 요약.
+10. earned_point: 단건 결제 화면 하단에 부가적인 포인트 적립 문구가 있을 때만 적립 포인트 정수 숫자 (없거나 이미 type이 "point_earn"이면 0).
 
-반드시 마크다운 코드블록(\`\`\`json) 없이 순수 JSON 객체만 반환하세요.
+반드시 아래 JSON 형식으로만 반환하세요:
+{"transactions":[{"type":"expense","necessity":"need","amount":15000,"merchant":"상호명","date":"${currentYear}-MM-DD","time":"HH:mm","category":"식비","payment_method":"신용카드","memo":"","earned_point":0}]}
 `;
 
   const payload = {
@@ -110,36 +115,64 @@ async function recognizeReceiptOrCapture(imageBuffer, mimeType = 'image/jpeg', a
       const cleanJson = text.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim();
       const parsed = JSON.parse(cleanJson);
 
-      const isPoint =
-        parsed.type === 'point' ||
-        parsed.type === 'point_earn' ||
-        parsed.type === 'point_use' ||
-        parsed.category === '포인트';
+      const rawList = Array.isArray(parsed.transactions)
+        ? parsed.transactions
+        : Array.isArray(parsed)
+        ? parsed
+        : [parsed];
 
-      const isSaving =
-        !isPoint &&
-        (parsed.type === 'saving' ||
-          parsed.category === '저축/투자' ||
-          parsed.category === '저축' ||
-          parsed.category === '투자');
+      const normalizeItem = (item) => {
+        const isPoint =
+          item.type === 'point' ||
+          item.type === 'point_earn' ||
+          item.type === 'point_use' ||
+          item.category === '포인트' ||
+          item.payment_method === '네이버페이(포인트)';
+
+        const isSaving =
+          !isPoint &&
+          (item.type === 'saving' ||
+            item.category === '저축/투자' ||
+            item.category === '저축' ||
+            item.category === '투자');
+
+        return {
+          type: isPoint
+            ? item.type === 'point_use'
+              ? 'point_use'
+              : 'point_earn'
+            : isSaving
+            ? 'saving'
+            : item.type === 'income'
+            ? 'income'
+            : 'expense',
+          necessity: isSaving ? 'need' : item.necessity === 'want' ? 'want' : 'need',
+          amount:
+            typeof item.amount === 'number'
+              ? Math.abs(Math.round(item.amount))
+              : Number(String(item.amount || '').replace(/[^0-9]/g, '')) || 0,
+          merchant: item.merchant || '미상',
+          date: item.date || getTodayYMD(),
+          time: item.time || getNowHM(),
+          category: isPoint ? '포인트' : isSaving ? '저축/투자' : item.category || '기타',
+          payment_method: isPoint ? '네이버페이(포인트)' : item.payment_method || '신용카드',
+          memo: item.memo || '',
+          items: Array.isArray(item.items) ? item.items : [],
+          raw_summary: item.raw_summary || '',
+          earned_point:
+            typeof item.earned_point === 'number'
+              ? Math.max(0, Math.round(item.earned_point))
+              : Number(String(item.earned_point || '').replace(/[^0-9]/g, '')) || 0
+        };
+      };
+
+      const transactions = rawList.map(normalizeItem).filter((t) => t.amount > 0);
+      const first = transactions[0] || normalizeItem(rawList[0] || {});
 
       return {
         success: true,
-        extracted: {
-          type: isPoint ? (parsed.type === 'point_use' ? 'point_use' : 'point_earn') : isSaving ? 'saving' : parsed.type === 'income' ? 'income' : 'expense',
-          necessity: isSaving ? 'need' : (parsed.necessity === 'want' ? 'want' : 'need'),
-          amount: typeof parsed.amount === 'number' ? Math.abs(Math.round(parsed.amount)) : (Number(String(parsed.amount || '').replace(/[^0-9]/g, '')) || 0),
-          merchant: parsed.merchant || '미상',
-          date: parsed.date || getTodayYMD(),
-          time: parsed.time || getNowHM(),
-          category: isPoint ? '포인트' : isSaving ? '저축/투자' : parsed.category || '기타',
-          payment_method: isPoint ? '네이버페이(포인트)' : parsed.payment_method || '카드',
-          memo: parsed.memo || '',
-          items: Array.isArray(parsed.items) ? parsed.items : [],
-          raw_summary: parsed.raw_summary || '',
-          earned_point: typeof parsed.earned_point === 'number' ? Math.max(0, Math.round(parsed.earned_point)) : (Number(String(parsed.earned_point || '').replace(/[^0-9]/g, '')) || 0),
-          used_point: typeof parsed.used_point === 'number' ? Math.max(0, Math.round(parsed.used_point)) : (Number(String(parsed.used_point || '').replace(/[^0-9]/g, '')) || 0)
-        }
+        extracted: first,
+        transactions: transactions.length > 0 ? transactions : [first]
       };
     } catch (err) {
       lastError = err;
