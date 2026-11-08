@@ -98,13 +98,8 @@ export default function SummaryCards({
 
         {/* 4. Available Balance (Cumulative Cash + Points) */}
         <div className="bg-white rounded-2xl p-3.5 sm:p-5 border border-zinc-200/70 shadow-xs min-w-0">
-          <div className="flex items-center justify-between text-xs font-medium text-zinc-500 mb-1 sm:mb-1.5 whitespace-nowrap">
-            <span>가용 잔액 (쓸 수 있는 돈)</span>
-            {pointBalance > 0 && (
-              <span className="text-[10px] text-zinc-700 bg-zinc-100 border border-zinc-200 px-1.5 py-0.2 rounded-md font-semibold">
-                포인트 포함
-              </span>
-            )}
+          <div className="text-xs font-medium text-zinc-500 mb-1 sm:mb-1.5 whitespace-nowrap truncate">
+            가용 잔액 (쓸 수 있는 돈)
           </div>
           <div className={`text-lg sm:text-2xl font-extrabold tracking-tight whitespace-nowrap truncate ${balance >= 0 ? 'text-zinc-900' : 'text-rose-700'}`}>
             {balance > 0 ? `+${formatKRW(balance)}` : formatKRW(balance)}
