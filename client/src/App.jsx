@@ -88,6 +88,7 @@ function computeClientStats(txList, year, month, monthlyBudget = 1200000, startD
     const amt = cleanNumber(p.amount);
     if (p.type === 'earn') totalPointBalance += amt;
     else if (p.type === 'use') totalPointBalance -= amt;
+    else if (p.type === 'adjust') totalPointBalance = amt;
   }
 
   const catMap = {};

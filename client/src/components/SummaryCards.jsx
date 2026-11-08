@@ -128,7 +128,7 @@ export default function SummaryCards({
             <div className="flex items-center gap-1.5">
               <span className="text-xs font-bold text-zinc-900">보유 포인트</span>
               <span className="text-xs font-extrabold text-zinc-900">
-                {formatKRW(pointBalance).replace('원', '')}P
+                {pointBalance < 0 ? '-' : ''}{formatKRW(pointBalance).replace('원', '')}P
               </span>
             </div>
             <div className="text-[11px] text-zinc-400 truncate mt-0.5">

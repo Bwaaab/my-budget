@@ -118,7 +118,7 @@ export function isSavingWithdrawTx(t) {
 
 export function isPointTx(t) {
   if (!t) return false;
-  return (
+  if (
     t.type === 'point' ||
     t.type === 'point_earn' ||
     t.type === 'point_use' ||
@@ -126,13 +126,23 @@ export function isPointTx(t) {
     t.category === '포인트 적립' ||
     t.category === '포인트 사용' ||
     t.payment_method === '네이버페이(포인트)'
-  );
+  ) {
+    return true;
+  }
+  const text = `${t.merchant || ''} ${t.memo || ''}`;
+  if (text.includes('포인트 적립') || text.includes('포인트 사용') || (t.memo || '').includes('AI 캡처 적립')) {
+    return true;
+  }
+  return false;
 }
 
 export function isPointEarnTx(t) {
   if (!isPointTx(t)) return false;
-  if (t.type === 'point_earn' || t.category === '포인트 적립') return true;
-  if (t.type === 'point_use' || t.category === '포인트 사용') return false;
+  if (t.type === 'point_earn' || t.pointMode === 'earn' || t.point_mode === 'earn' || t.category === '포인트 적립') return true;
+  if (t.type === 'point_use' || t.pointMode === 'use' || t.point_mode === 'use' || t.category === '포인트 사용') return false;
+  const text = `${t.merchant || ''} ${t.memo || ''}`;
+  if (text.includes('적립') || text.includes('혜택') || text.includes('이벤트') || text.includes('리워드')) return true;
+  if (text.includes('사용') || text.includes('차감')) return false;
   return t.type === 'income';
 }
 
