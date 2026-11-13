@@ -85,14 +85,14 @@ function normalizeExtractedToFormItem(raw, imagePath = '', idx = 0) {
   };
 }
 
-// Compress & resize image on client (max 1152px so long vertical transaction list screenshots stay sharp)
+// Compress & resize image on client (max 1600px with high smoothing so Korean receipt text & digits stay sharp)
 function compressImageToBase64(file) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     const objectUrl = URL.createObjectURL(file);
     img.onload = () => {
       URL.revokeObjectURL(objectUrl);
-      const MAX_DIM = 1152;
+      const MAX_DIM = 1600;
       let { width, height } = img;
       if (width > MAX_DIM || height > MAX_DIM) {
         if (width > height) {
@@ -107,8 +107,10 @@ function compressImageToBase64(file) {
       canvas.width = width;
       canvas.height = height;
       const ctx = canvas.getContext('2d');
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
       ctx.drawImage(img, 0, 0, width, height);
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.88);
       resolve({
         base64: dataUrl.split(',')[1],
         mimeType: 'image/jpeg'
@@ -153,14 +155,13 @@ async function getOrderedAvailableModels(cleanKey) {
   }
 
   const preferredOrder = [
-    'gemini-3.5-flash-lite',
-    'gemini-3.1-flash-lite',
-    'gemini-3.5-flash-lite-preview',
-    'gemini-3.1-flash-lite-preview',
     'gemini-3.6-flash',
     'gemini-3.8-flash',
-    'gemini-flash-lite-latest',
-    'gemini-flash-latest'
+    'gemini-2.5-flash',
+    'gemini-3.5-flash-lite',
+    'gemini-3.1-flash-lite',
+    'gemini-flash-latest',
+    'gemini-flash-lite-latest'
   ];
 
   try {
@@ -180,16 +181,16 @@ async function getOrderedAvailableModels(cleanKey) {
         .map((m) => m.name.replace(/^models\//, ''));
 
       if (validServerModels.length > 0) {
+        const flashModels = validServerModels.filter(
+          (m) => m.includes('flash') && !m.includes('lite')
+        );
         const liteModels = validServerModels.filter(
           (m) => m.includes('flash-lite') || m.includes('lite')
         );
-        const flashModels = validServerModels.filter(
-          (m) => m.includes('flash') && !liteModels.includes(m)
-        );
         const ranked = [
           ...preferredOrder.filter((p) => validServerModels.includes(p)),
-          ...liteModels.filter((m) => !preferredOrder.includes(m)),
-          ...flashModels.filter((m) => !preferredOrder.includes(m))
+          ...flashModels.filter((m) => !preferredOrder.includes(m)),
+          ...liteModels.filter((m) => !preferredOrder.includes(m))
         ];
         if (ranked.length > 0) {
           return ranked;
@@ -205,6 +206,11 @@ async function analyzeDirectWithGemini(base64Data, mimeType, apiKey) {
   const cleanKey = (apiKey || '').trim();
   const currentYear = new Date().getFullYear();
   const prompt = `한국 가계부 결제/영수증/이체/투자/포인트 캡처 이미지에서 거래 내역들을 추출해 JSON으로 반환하세요.
+
+[정밀 금액 및 상호 식별 규칙]
+- **최종 결제 금액 우선**: 주문금액, 공급가액, 부가세(VAT), 봉사료, 할인금액, 카드 끝자리(4자리), 승인번호(8자리 등)와 절대 혼동하지 마세요. 반드시 구매자가 실제로 최종 결제/승인한 **"합계 / 결제금액 / 승인금액"**을 추출해야 합니다.
+- **상호명(가맹점명)**: 사업자번호, 대표자 성명, 영수증 번호 대신 실제 매장 상호명(예: "스타벅스 강남점", "이마트 역삼점")을 추출하세요.
+- **모바일 캡처/이체**: '수수료 0원'이나 거래 후 남은 '통장 잔액'은 거래 금액이 아닙니다. 실제 이체/출금/결제된 금액을 추출하세요.
 
 [핵심 판별 규칙: 단건 영수증 vs 다중 내역 리스트]
 1. **단일 결제 영수증 / 단건 결제·송금 상세 화면** (예: 마트/식당 영수증 1장, 배달 주문 상세 1건):
@@ -230,15 +236,70 @@ async function analyzeDirectWithGemini(base64Data, mimeType, apiKey) {
 - payment_method: "신용카드"|"체크카드"|"네이버페이"|"네이버페이(포인트)"|"카카오페이"|"토스페이"|"계좌이체"|"현금" 등
 - memo: 핵심 품목 또는 간단 요약
 - earned_point: 단건 영수증 하단에 부가적인 포인트 적립 혜택 문구가 있을 때만 적립 포인트 숫자 (없거나 이미 type이 "point_earn"이면 0)
+`;
 
-반드시 아래 JSON 형식만 반환하세요:
-{"transactions":[{"type":"expense","necessity":"need","amount":15000,"merchant":"상호명","date":"${currentYear}-MM-DD","time":"HH:mm","category":"식비","payment_method":"신용카드","memo":"품목","earned_point":0}]}`;
+  const responseSchema = {
+    type: "OBJECT",
+    properties: {
+      transactions: {
+        type: "ARRAY",
+        items: {
+          type: "OBJECT",
+          properties: {
+            type: {
+              type: "STRING",
+              enum: ["expense", "income", "saving", "point_earn", "point_use"]
+            },
+            necessity: {
+              type: "STRING",
+              enum: ["need", "want"]
+            },
+            amount: { type: "INTEGER" },
+            merchant: { type: "STRING" },
+            date: { type: "STRING" },
+            time: { type: "STRING" },
+            category: {
+              type: "STRING",
+              enum: [
+                "식비",
+                "카페/간식",
+                "마트/생필품",
+                "교통",
+                "문화/여가",
+                "쇼핑",
+                "의료/건강",
+                "주거/통신",
+                "저축/투자",
+                "급여",
+                "포인트",
+                "기타"
+              ]
+            },
+            payment_method: { type: "STRING" },
+            memo: { type: "STRING" },
+            earned_point: { type: "INTEGER" }
+          },
+          required: ["type", "amount", "merchant", "date", "category", "payment_method"]
+        }
+      }
+    },
+    required: ["transactions"]
+  };
 
   const models = await getOrderedAvailableModels(cleanKey);
 
-  const callModel = async (modelName) => {
+  const callModel = async (modelName, useSchema = true) => {
     const cleanModel = modelName.replace(/^models\//, '');
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${cleanModel}:generateContent?key=${encodeURIComponent(cleanKey)}`;
+
+    const generationConfig = {
+      temperature: 0,
+      maxOutputTokens: 4096,
+      response_mime_type: 'application/json'
+    };
+    if (useSchema) {
+      generationConfig.response_schema = responseSchema;
+    }
 
     const res = await fetch(url, {
       method: 'POST',
@@ -252,11 +313,7 @@ async function analyzeDirectWithGemini(base64Data, mimeType, apiKey) {
             ]
           }
         ],
-        generationConfig: {
-          temperature: 0,
-          maxOutputTokens: 4096,
-          response_mime_type: 'application/json'
-        }
+        generationConfig
       })
     });
 
@@ -266,6 +323,11 @@ async function analyzeDirectWithGemini(base64Data, mimeType, apiKey) {
         const errJson = await res.json();
         detail = errJson?.error?.message || '';
       } catch (_) {}
+
+      // 만약 response_schema 미지원 오류일 경우 스키마 없이 1회 재시도
+      if (useSchema && res.status === 400 && detail.toLowerCase().includes('schema')) {
+        return callModel(modelName, false);
+      }
 
       const err = new Error(
         res.status === 400 || res.status === 403
