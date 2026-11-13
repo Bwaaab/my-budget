@@ -46,6 +46,50 @@ const createEmptyAiFormData = () => ({
   image_path: ''
 });
 
+// Smart date validation & auto-correction for common OCR mistakes (e.g., "11/13" misread as "01/13" or future dates)
+function evaluateAndCorrectDate(rawDate) {
+  const cleanDate = normalizeDateYMD(rawDate);
+  const todayStr = todayYMD();
+  const [tY, tM, tD] = todayStr.split('-').map(Number);
+  const [cY, cM, cD] = cleanDate.split('-').map(Number);
+
+  if (!tY || !cY) {
+    return { date: cleanDate, originalAiDate: '', dateWarningType: null };
+  }
+
+  // 1. Future date check
+  if (cleanDate > todayStr) {
+    return {
+      date: todayStr,
+      originalAiDate: cleanDate,
+      dateWarningType: 'auto_corrected'
+    };
+  }
+
+  // 2. Month-digit truncation check: same year, day within +-1 day of today, but month differs by >= 3 months (e.g. 11/13 -> 1/13)
+  if (cY === tY && Math.abs(cD - tD) <= 1 && Math.abs(tM - cM) >= 3) {
+    const corrected = `${tY}-${String(tM).padStart(2, '0')}-${String(cD).padStart(2, '0')}`;
+    return {
+      date: corrected > todayStr ? todayStr : corrected,
+      originalAiDate: cleanDate,
+      dateWarningType: 'auto_corrected'
+    };
+  }
+
+  // 3. Suspicious past date check (>= 45 days ago)
+  const diffMs = new Date(todayStr).getTime() - new Date(cleanDate).getTime();
+  const diffDays = diffMs / (1000 * 60 * 60 * 24);
+  if (diffDays >= 45) {
+    return {
+      date: cleanDate,
+      originalAiDate: cleanDate,
+      dateWarningType: 'suspicious_past'
+    };
+  }
+
+  return { date: cleanDate, originalAiDate: '', dateWarningType: null };
+}
+
 // Normalize raw AI object into our form item structure
 function normalizeExtractedToFormItem(raw, imagePath = '', idx = 0) {
   const isPoint =
@@ -63,7 +107,7 @@ function normalizeExtractedToFormItem(raw, imagePath = '', idx = 0) {
       raw.category === '투자');
 
   const cleanAmt = cleanNumber(raw.amount) || (isPoint ? cleanNumber(raw.earned_point) : 0);
-  const cleanDate = normalizeDateYMD(raw.date);
+  const { date: smartDate, originalAiDate, dateWarningType } = evaluateAndCorrectDate(raw.date);
   const cleanTime = normalizeTimeHM(raw.time) || nowHM();
 
   return {
@@ -74,7 +118,9 @@ function normalizeExtractedToFormItem(raw, imagePath = '', idx = 0) {
     necessity: isSaving ? 'need' : raw.necessity || getNecessity(raw),
     amount: cleanAmt > 0 ? String(cleanAmt) : '',
     merchant: raw.merchant || (isPoint ? '네이버페이 포인트 적립' : ''),
-    date: cleanDate,
+    date: smartDate,
+    originalAiDate,
+    dateWarningType,
     time: cleanTime,
     category: isPoint ? '포인트' : isSaving ? '저축/투자' : raw.category || '기타',
     payment_method: isPoint ? '네이버페이(포인트)' : raw.payment_method || (isSaving ? '계좌이체' : '신용카드'),
@@ -205,9 +251,12 @@ async function getOrderedAvailableModels(cleanKey) {
 async function analyzeDirectWithGemini(base64Data, mimeType, apiKey) {
   const cleanKey = (apiKey || '').trim();
   const currentYear = new Date().getFullYear();
+  const todayStr = todayYMD();
   const prompt = `한국 가계부 결제/영수증/이체/투자/포인트 캡처 이미지에서 거래 내역들을 추출해 JSON으로 반환하세요.
 
-[정밀 금액 및 상호 식별 규칙]
+[정밀 금액, 상호 및 날짜 앵커 규칙]
+- **오늘 날짜 앵커**: 현재 기준 오늘 날짜는 **${todayStr}**입니다.
+  - 영수증에 연도가 없거나 월/일 숫자가 잘려 흐릿한 경우(예: "11/13" 앞자리가 잘려 "1/13"으로 보임), 결제 시간(HH:mm)이나 카드 유효기간(MM/YY)을 거래일자로 절대 오인하지 말고 오늘 날짜(${todayStr}) 기준 가장 가까운 당일/최근 과거 일자로 정확히 판별하세요.
 - **최종 결제 금액 우선**: 주문금액, 공급가액, 부가세(VAT), 봉사료, 할인금액, 카드 끝자리(4자리), 승인번호(8자리 등)와 절대 혼동하지 마세요. 반드시 구매자가 실제로 최종 결제/승인한 **"합계 / 결제금액 / 승인금액"**을 추출해야 합니다.
 - **상호명(가맹점명)**: 사업자번호, 대표자 성명, 영수증 번호 대신 실제 매장 상호명(예: "스타벅스 강남점", "이마트 역삼점")을 추출하세요.
 - **모바일 캡처/이체**: '수수료 0원'이나 거래 후 남은 '통장 잔액'은 거래 금액이 아닙니다. 실제 이체/출금/결제된 금액을 추출하세요.
@@ -1226,9 +1275,18 @@ export default function AiScannerModal({
                                   type="date"
                                   value={item.date}
                                   onChange={(e) =>
-                                    handleUpdateBatchItem(item.tempId, { date: e.target.value })
+                                    handleUpdateBatchItem(item.tempId, {
+                                      date: e.target.value,
+                                      dateWarningType: null
+                                    })
                                   }
-                                  className="text-[11px] font-medium text-zinc-600 px-2.5 py-1 bg-zinc-100/80 border border-zinc-200/80 rounded-full outline-none"
+                                  className={`text-[11px] font-medium px-2.5 py-1 border rounded-full outline-none ${
+                                    item.dateWarningType === 'suspicious_past'
+                                      ? 'text-amber-800 bg-amber-50 border-amber-300'
+                                      : item.dateWarningType === 'auto_corrected'
+                                      ? 'text-indigo-800 bg-indigo-50 border-indigo-300'
+                                      : 'text-zinc-600 bg-zinc-100/80 border-zinc-200/80'
+                                  }`}
                                 />
                                 <button
                                   type="button"
@@ -1240,6 +1298,49 @@ export default function AiScannerModal({
                                 </button>
                               </div>
                             </div>
+
+                            {item.dateWarningType && (
+                              <div
+                                className={`mb-2 px-2.5 py-1.5 rounded-xl text-[11px] flex items-center justify-between gap-2 border ${
+                                  item.dateWarningType === 'auto_corrected'
+                                    ? 'bg-indigo-50/80 border-indigo-200 text-indigo-800'
+                                    : 'bg-amber-50/90 border-amber-200 text-amber-800'
+                                }`}
+                              >
+                                <span>
+                                  {item.dateWarningType === 'auto_corrected'
+                                    ? `✨ 날짜 자동 보정됨 (AI인식: ${item.originalAiDate} → ${item.date})`
+                                    : `⚠️ 과거 날짜(${item.date})입니다. 오인식 여부를 확인하세요.`}
+                                </span>
+                                {item.dateWarningType === 'auto_corrected' ? (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleUpdateBatchItem(item.tempId, {
+                                        date: item.originalAiDate,
+                                        dateWarningType: null
+                                      })
+                                    }
+                                    className="px-2 py-0.5 bg-white border border-indigo-200 rounded-md font-semibold text-indigo-700 hover:bg-indigo-100 transition flex-shrink-0"
+                                  >
+                                    원본 유지
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleUpdateBatchItem(item.tempId, {
+                                        date: todayYMD(),
+                                        dateWarningType: null
+                                      })
+                                    }
+                                    className="px-2 py-0.5 bg-white border border-amber-300 rounded-md font-semibold text-amber-800 hover:bg-amber-100 transition flex-shrink-0"
+                                  >
+                                    오늘({todayYMD().slice(5)})로 변경
+                                  </button>
+                                )}
+                              </div>
+                            )}
 
                             {/* Row 2: Merchant & Amount (Rounded-2xl / full pill inputs) */}
                             <div className="grid grid-cols-12 gap-2">
@@ -1593,8 +1694,16 @@ export default function AiScannerModal({
                           type="date"
                           required
                           value={formData.date}
-                          onChange={(e) => setFormData({ ...formData, date: e.target.value })}
-                          className="w-full text-xs px-2.5 py-1.5 bg-zinc-50 border border-zinc-200 rounded-xl focus:bg-white outline-none"
+                          onChange={(e) =>
+                            setFormData({ ...formData, date: e.target.value, dateWarningType: null })
+                          }
+                          className={`w-full text-xs px-2.5 py-1.5 border rounded-xl focus:bg-white outline-none ${
+                            formData.dateWarningType === 'suspicious_past'
+                              ? 'bg-amber-50 border-amber-300 text-amber-900'
+                              : formData.dateWarningType === 'auto_corrected'
+                              ? 'bg-indigo-50 border-indigo-300 text-indigo-900'
+                              : 'bg-zinc-50 border-zinc-200'
+                          }`}
                         />
                       </div>
                       <div>
@@ -1609,6 +1718,51 @@ export default function AiScannerModal({
                         />
                       </div>
                     </div>
+
+                    {formData.dateWarningType && (
+                      <div
+                        className={`px-3 py-2 rounded-xl text-xs flex items-center justify-between gap-2 border ${
+                          formData.dateWarningType === 'auto_corrected'
+                            ? 'bg-indigo-50 border-indigo-200 text-indigo-800'
+                            : 'bg-amber-50 border-amber-200 text-amber-800'
+                        }`}
+                      >
+                        <span>
+                          {formData.dateWarningType === 'auto_corrected'
+                            ? `✨ 날짜가 자동 보정되었습니다 (AI인식: ${formData.originalAiDate} → ${formData.date})`
+                            : `⚠️ 과거 날짜(${formData.date})로 인식되었습니다.`}
+                        </span>
+                        {formData.dateWarningType === 'auto_corrected' ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setFormData({
+                                ...formData,
+                                date: formData.originalAiDate,
+                                dateWarningType: null
+                              })
+                            }
+                            className="px-2.5 py-1 bg-white border border-indigo-200 rounded-lg font-semibold text-indigo-700 hover:bg-indigo-100 transition flex-shrink-0"
+                          >
+                            원본 유지
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setFormData({
+                                ...formData,
+                                date: todayYMD(),
+                                dateWarningType: null
+                              })
+                            }
+                            className="px-2.5 py-1 bg-white border border-amber-300 rounded-lg font-semibold text-amber-800 hover:bg-amber-100 transition flex-shrink-0"
+                          >
+                            오늘({todayYMD().slice(5)})로 변경
+                          </button>
+                        )}
+                      </div>
+                    )}
 
                     {/* Category Chips & Payment Method (Hidden when type === 'point') */}
                     {formData.type !== 'point' ? (

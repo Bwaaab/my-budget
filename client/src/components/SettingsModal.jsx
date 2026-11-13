@@ -545,7 +545,7 @@ export default function SettingsModal({
     setTimeout(() => setCopiedCode(false), 2000);
   };
 
-  // Scan current local transactions for suspicious/failed AI entries, past-year errors, or date-mismatched duplicates
+  // Scan current local transactions for suspicious/failed AI entries, abnormal dates, or exact/fuzzy duplicates
   const handleScanSuspicious = () => {
     let list = [];
     try {
@@ -555,12 +555,17 @@ export default function SettingsModal({
 
     const suspicious = [];
     const suspiciousIdSet = new Set();
-    const currentYear = new Date().getFullYear();
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const pad = (n) => String(n).padStart(2, '0');
+    const todayStr = `${currentYear}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 
-    // 1. Check obvious invalid / dummy data
+    // 1. Check obvious invalid / dummy data & abnormal dates
     list.forEach(item => {
       const merchant = String(item.merchant || '').trim();
       const amount = Number(item.amount) || 0;
+      const dateStr = String(item.date || '').trim();
+      const itemYear = Number(dateStr.slice(0, 4)) || 0;
       let isBad = false;
       let reason = '';
 
@@ -573,6 +578,12 @@ export default function SettingsModal({
       } else if (amount <= 0) {
         isBad = true;
         reason = '0원 이하 내역';
+      } else if (dateStr && dateStr > todayStr) {
+        isBad = true;
+        reason = `미래 날짜 오류 (${dateStr})`;
+      } else if (itemYear > 0 && currentYear - itemYear >= 2) {
+        isBad = true;
+        reason = `과거 연도 오인식 의심 (${dateStr})`;
       }
 
       if (isBad && !suspiciousIdSet.has(item.id)) {
@@ -598,6 +609,53 @@ export default function SettingsModal({
         });
       } else {
         exactMap.set(sig, item);
+      }
+    });
+
+    // 3. Same-Day Duplicates (Same date, type, clean merchant, amount — different or missing time)
+    const sameDayMap = new Map();
+    list.forEach(item => {
+      if (suspiciousIdSet.has(item.id)) return;
+      const cleanMerchant = String(item.merchant || '').replace(/\s+/g, '').toLowerCase();
+      const amount = Number(item.amount) || 0;
+      const sig = `${item.date}_${item.type}_${cleanMerchant}_${amount}`;
+
+      if (sameDayMap.has(sig)) {
+        const ref = sameDayMap.get(sig);
+        suspiciousIdSet.add(item.id);
+        suspicious.push({
+          ...item,
+          reason: `동일 일자·상호·금액 중복 의심 (기준: ${ref.date} ${ref.time || ''})`
+        });
+      } else {
+        sameDayMap.set(sig, item);
+      }
+    });
+
+    // 4. Date-Mismatched Duplicates (Same type, clean merchant, amount & same day-of-month, e.g. 2026-11-13 vs 2026-01-13)
+    const fuzzyMap = new Map();
+    // Sort latest date first so the newest/most-accurate month is kept as the reference
+    const sortedForFuzzy = [...list].sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+    sortedForFuzzy.forEach(item => {
+      if (suspiciousIdSet.has(item.id)) return;
+      const cleanMerchant = String(item.merchant || '').replace(/\s+/g, '').toLowerCase();
+      const amount = Number(item.amount) || 0;
+      const dateStr = String(item.date || '').trim();
+      const dayPart = dateStr.slice(8, 10); // DD
+      if (!dayPart || cleanMerchant.length === 0) return;
+
+      const fuzzySig = `${item.type}_${cleanMerchant}_${amount}_${dayPart}`;
+      if (fuzzyMap.has(fuzzySig)) {
+        const ref = fuzzyMap.get(fuzzySig);
+        if (ref.date !== dateStr) {
+          suspiciousIdSet.add(item.id);
+          suspicious.push({
+            ...item,
+            reason: `날짜(월) 오인식 중복 의심 (기준: ${ref.date})`
+          });
+        }
+      } else {
+        fuzzyMap.set(fuzzySig, item);
       }
     });
 
