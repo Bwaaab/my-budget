@@ -6,7 +6,7 @@ import {
   Settings,
   Sparkles,
   Plus,
-  RefreshCw
+  Loader2
 } from 'lucide-react';
 import Logo from './Logo';
 
@@ -43,13 +43,13 @@ export default function Header({
             가계부
           </h1>
 
-          {/* Period Mode Toggle (월 / 주) */}
+          {/* Period Mode Toggle (월간 / 주간) */}
           {onChangePeriodMode && (
             <div className="flex items-center bg-zinc-100 rounded-xl p-0.5 border border-zinc-200/50 flex-shrink-0">
               <button
                 type="button"
                 onClick={() => onChangePeriodMode('month')}
-                className={`px-2 py-1 text-[11px] font-bold rounded-lg transition cursor-pointer whitespace-nowrap ${
+                className={`px-1.5 sm:px-2 py-1 text-[11px] font-bold rounded-lg transition cursor-pointer whitespace-nowrap ${
                   !isWeek
                     ? 'bg-white text-zinc-900 shadow-xs'
                     : 'text-zinc-500 hover:text-zinc-800'
@@ -60,7 +60,7 @@ export default function Header({
               <button
                 type="button"
                 onClick={() => onChangePeriodMode('week')}
-                className={`px-2 py-1 text-[11px] font-bold rounded-lg transition cursor-pointer whitespace-nowrap ${
+                className={`px-1.5 sm:px-2 py-1 text-[11px] font-bold rounded-lg transition cursor-pointer whitespace-nowrap ${
                   isWeek
                     ? 'bg-white text-zinc-900 shadow-xs'
                     : 'text-zinc-500 hover:text-zinc-800'
@@ -84,10 +84,10 @@ export default function Header({
             <button
               type="button"
               onClick={onGoToday}
-              className="flex flex-col sm:flex-row items-center justify-center sm:gap-1.5 px-1.5 sm:px-2.5 py-0.5 leading-none cursor-pointer hover:opacity-80 transition"
+              className="flex flex-col sm:flex-row items-center justify-center sm:gap-1.5 px-1 sm:px-2.5 py-0.5 leading-none cursor-pointer hover:opacity-80 transition"
               title={isWeek ? '클릭하면 이번 주로 이동' : '클릭하면 이번 달로 이동'}
             >
-              <span className="text-xs sm:text-sm font-bold text-zinc-800 tracking-tight text-center whitespace-nowrap">
+              <span className="text-[11px] sm:text-sm font-bold text-zinc-800 tracking-tight text-center whitespace-nowrap">
                 {isWeek ? (weekTitle || `${month}월`) : `${year}년 ${month}월`}
               </span>
               {(isWeek || (monthStartDay && monthStartDay !== 1)) && rangeLabel && (
@@ -112,30 +112,32 @@ export default function Header({
 
         {/* Action Buttons */}
         <div className="flex items-center gap-1.5 flex-shrink-0">
-          {/* Google Sheets Sync Button */}
+          {/* Compact Google Sheets Sync Status Indicator */}
           <button
+            type="button"
             onClick={hasGoogleSheets ? onSyncGoogleSheets : onOpenSettingsModal}
             disabled={isSyncing}
-            className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-xs font-semibold rounded-xl border transition active:scale-95 ${
+            className={`w-8 h-8 flex items-center justify-center rounded-xl border transition active:scale-95 flex-shrink-0 cursor-pointer ${
               hasGoogleSheets
-                ? 'border-zinc-300 bg-white hover:bg-zinc-50 text-zinc-900 shadow-xs'
-                : 'border-amber-300 bg-amber-50/80 text-amber-900 hover:bg-amber-100/70'
+                ? 'border-zinc-200 bg-white hover:bg-zinc-50'
+                : 'border-amber-200 bg-amber-50/70 hover:bg-amber-100/70'
             }`}
             title={
-              hasGoogleSheets
+              isSyncing
+                ? 'DB 동기화 중...'
+                : hasGoogleSheets
                 ? 'DB 연동 완료 — 클릭하여 최신 내역 동기화'
-                : 'DB 연동 설정'
+                : 'DB 미연동 — 클릭하여 연동 설정'
             }
+            aria-label={isSyncing ? 'DB 동기화 중' : hasGoogleSheets ? 'DB 연동 완료' : 'DB 미연동'}
           >
-            <span
-              className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                hasGoogleSheets ? 'bg-emerald-500' : 'bg-amber-500 animate-pulse'
-              }`}
-            />
-            <RefreshCw className={`w-3.5 h-3.5 ${hasGoogleSheets ? 'text-zinc-700' : 'text-amber-700'} ${isSyncing ? 'animate-spin' : ''}`} />
-            <span className="text-[11px] sm:text-xs whitespace-nowrap">
-              {isSyncing ? 'DB 연동 중...' : hasGoogleSheets ? 'DB 연동 완료' : 'DB 미연동'}
-            </span>
+            {isSyncing ? (
+              <Loader2 className="w-3.5 h-3.5 text-emerald-500 animate-spin" />
+            ) : !hasGoogleSheets ? (
+              <Loader2 className="w-3.5 h-3.5 text-amber-500 animate-spin" />
+            ) : (
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.55)]" />
+            )}
           </button>
 
           {/* QR Code Phone Sync button (Desktop & Tablet only) */}
