@@ -12,10 +12,14 @@ import Logo from './Logo';
 
 export default function Header({
   currentDate,
+  periodMode = 'month',
+  onChangePeriodMode,
+  weekTitle = '',
   monthStartDay = 1,
   rangeLabel = '',
   onPrevMonth,
   onNextMonth,
+  onGoToday,
   onOpenScanner,
   onOpenAddModal,
   onOpenQrModal,
@@ -27,31 +31,66 @@ export default function Header({
 }) {
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth() + 1;
+  const isWeek = periodMode === 'week';
 
   return (
     <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-zinc-200/70 px-3 py-2.5 sm:px-6 w-full max-w-full overflow-hidden">
-      <div className="max-w-5xl mx-auto flex items-center justify-between gap-2 w-full">
-        {/* Brand & Month Navigator */}
-        <div className="flex items-center gap-2 sm:gap-4 min-w-0">
+      <div className="max-w-5xl mx-auto flex items-center justify-between gap-1.5 sm:gap-2 w-full">
+        {/* Brand & Period Navigator */}
+        <div className="flex items-center gap-1.5 sm:gap-3 min-w-0">
           <Logo size={30} />
-          <h1 className="text-sm sm:text-base font-bold text-zinc-900 tracking-tight leading-tight hidden xs:block">
+          <h1 className="text-sm sm:text-base font-bold text-zinc-900 tracking-tight leading-tight hidden md:block">
             가계부
           </h1>
 
-          {/* Month Selector */}
+          {/* Period Mode Toggle (월 / 주) */}
+          {onChangePeriodMode && (
+            <div className="flex items-center bg-zinc-100 rounded-xl p-0.5 border border-zinc-200/50 flex-shrink-0">
+              <button
+                type="button"
+                onClick={() => onChangePeriodMode('month')}
+                className={`px-2 py-1 text-[11px] font-bold rounded-lg transition cursor-pointer whitespace-nowrap ${
+                  !isWeek
+                    ? 'bg-white text-zinc-900 shadow-xs'
+                    : 'text-zinc-500 hover:text-zinc-800'
+                }`}
+              >
+                월간
+              </button>
+              <button
+                type="button"
+                onClick={() => onChangePeriodMode('week')}
+                className={`px-2 py-1 text-[11px] font-bold rounded-lg transition cursor-pointer whitespace-nowrap ${
+                  isWeek
+                    ? 'bg-white text-zinc-900 shadow-xs'
+                    : 'text-zinc-500 hover:text-zinc-800'
+                }`}
+              >
+                주간
+              </button>
+            </div>
+          )}
+
+          {/* Month / Week Selector */}
           <div className="flex items-center bg-zinc-100 rounded-xl p-0.5 border border-zinc-200/50 flex-shrink-0">
             <button
+              type="button"
               onClick={onPrevMonth}
-              className="p-1 sm:p-1.5 rounded-lg hover:bg-white text-zinc-600 hover:text-zinc-900 transition-colors flex-shrink-0"
-              title="이전 달"
+              className="p-1 sm:p-1.5 rounded-lg hover:bg-white text-zinc-600 hover:text-zinc-900 transition-colors flex-shrink-0 cursor-pointer"
+              title={isWeek ? '이전 주' : '이전 달'}
             >
               <ChevronLeft className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </button>
-            <div className="flex flex-col sm:flex-row items-center justify-center sm:gap-1.5 px-1.5 sm:px-2.5 py-0.5 leading-none">
+            <button
+              type="button"
+              onClick={onGoToday}
+              className="flex flex-col sm:flex-row items-center justify-center sm:gap-1.5 px-1.5 sm:px-2.5 py-0.5 leading-none cursor-pointer hover:opacity-80 transition"
+              title={isWeek ? '클릭하면 이번 주로 이동' : '클릭하면 이번 달로 이동'}
+            >
               <span className="text-xs sm:text-sm font-bold text-zinc-800 tracking-tight text-center whitespace-nowrap">
-                {year}년 {month}월
+                {isWeek ? (weekTitle || `${month}월`) : `${year}년 ${month}월`}
               </span>
-              {monthStartDay && monthStartDay !== 1 && rangeLabel && (
+              {(isWeek || (monthStartDay && monthStartDay !== 1)) && rangeLabel && (
                 <span
                   className="text-[9px] sm:text-[11px] font-semibold sm:font-medium sm:px-1.5 sm:py-0.5 rounded-md sm:bg-zinc-200 text-zinc-500 sm:text-zinc-700 whitespace-nowrap mt-0.5 sm:mt-0"
                   title={`집계 기간: ${rangeLabel}`}
@@ -59,11 +98,12 @@ export default function Header({
                   {rangeLabel}
                 </span>
               )}
-            </div>
+            </button>
             <button
+              type="button"
               onClick={onNextMonth}
-              className="p-1 sm:p-1.5 rounded-lg hover:bg-white text-zinc-600 hover:text-zinc-900 transition-colors flex-shrink-0"
-              title="다음 달"
+              className="p-1 sm:p-1.5 rounded-lg hover:bg-white text-zinc-600 hover:text-zinc-900 transition-colors flex-shrink-0 cursor-pointer"
+              title={isWeek ? '다음 주' : '다음 달'}
             >
               <ChevronRight className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </button>

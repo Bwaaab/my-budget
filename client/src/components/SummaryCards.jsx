@@ -5,12 +5,14 @@ import CategoryIcon from './CategoryIcon';
 
 export default function SummaryCards({
   stats,
+  periodMode = 'month',
   onOpenPointAdd,
   onOpenBudgetEdit,
   onOpenCategoryBudgetModal,
   onOpenSavingWithdraw
 }) {
   const [isCatBudgetOpen, setIsCatBudgetOpen] = useState(false);
+  const isWeek = periodMode === 'week';
   const {
     totalExpense = 0,
     totalNeedExpense = 0,
@@ -42,7 +44,9 @@ export default function SummaryCards({
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
         {/* 1. Total Expense */}
         <div className="bg-white rounded-2xl p-3.5 sm:p-5 border border-zinc-200/70 shadow-xs min-w-0">
-          <div className="text-xs font-medium text-zinc-500 mb-1 sm:mb-1.5 whitespace-nowrap">이번 달 지출</div>
+          <div className="text-xs font-medium text-zinc-500 mb-1 sm:mb-1.5 whitespace-nowrap">
+            {isWeek ? '이번 주 지출' : '이번 달 지출'}
+          </div>
           <div className="text-lg sm:text-2xl font-extrabold text-zinc-900 tracking-tight whitespace-nowrap truncate">
             {formatKRW(totalExpense)}
           </div>
@@ -87,7 +91,9 @@ export default function SummaryCards({
 
         {/* 3. Total Income */}
         <div className="bg-white rounded-2xl p-3.5 sm:p-5 border border-zinc-200/70 shadow-xs min-w-0">
-          <div className="text-xs font-medium text-zinc-500 mb-1 sm:mb-1.5 whitespace-nowrap">이번 달 수입</div>
+          <div className="text-xs font-medium text-zinc-500 mb-1 sm:mb-1.5 whitespace-nowrap">
+            {isWeek ? '이번 주 수입' : '이번 달 수입'}
+          </div>
           <div className="text-lg sm:text-2xl font-extrabold text-zinc-900 tracking-tight whitespace-nowrap truncate">
             {formatKRW(totalIncome)}
           </div>
@@ -110,7 +116,7 @@ export default function SummaryCards({
                 현금 {formatKRW(actualCashBalance)} + <span className="text-zinc-700 font-semibold">{formatKRW(pointBalance).replace('원', '')}P</span>
               </span>
             ) : monthlyBalance !== 0 ? (
-              `이달 증감 ${monthlyBalance > 0 ? `+${formatKRW(monthlyBalance)}` : formatKRW(monthlyBalance)}`
+              `${isWeek ? '이주' : '이달'} 증감 ${monthlyBalance > 0 ? `+${formatKRW(monthlyBalance)}` : formatKRW(monthlyBalance)}`
             ) : (
               '전체 누적 실가용 현금'
             )}
@@ -132,7 +138,7 @@ export default function SummaryCards({
               </span>
             </div>
             <div className="text-[11px] text-zinc-400 truncate mt-0.5">
-              이번 달 적립 <span className="text-zinc-700 font-semibold">+{formatKRW(monthlyPointEarned).replace('원', '')}P</span> · 사용 <span className="text-zinc-600 font-semibold">-{formatKRW(monthlyPointUsed).replace('원', '')}P</span>
+              {isWeek ? '이번 주' : '이번 달'} 적립 <span className="text-zinc-700 font-semibold">+{formatKRW(monthlyPointEarned).replace('원', '')}P</span> · 사용 <span className="text-zinc-600 font-semibold">-{formatKRW(monthlyPointUsed).replace('원', '')}P</span>
             </div>
           </div>
         </div>
@@ -146,7 +152,7 @@ export default function SummaryCards({
         </button>
       </div>
 
-      {/* Monthly Budget Tracker Bar */}
+      {/* Monthly / Weekly Budget Tracker Bar */}
       <div className="bg-white rounded-2xl p-4 sm:p-5 border border-zinc-200/70 shadow-xs space-y-3.5">
         {/* Budget Progress */}
         <div>
@@ -154,8 +160,13 @@ export default function SummaryCards({
             <div className="flex items-center gap-1.5 flex-shrink-0">
               <Target className="w-3.5 h-3.5 text-zinc-600 flex-shrink-0" />
               <span className="text-xs sm:text-sm font-semibold text-zinc-800 whitespace-nowrap">
-                지출 목표 예산
+                {isWeek ? '주간 권장 예산' : '지출 목표 예산'}
               </span>
+              {isWeek && (
+                <span className="text-[10px] text-zinc-400 font-medium whitespace-nowrap">
+                  (월 예산 환산)
+                </span>
+              )}
               <button
                 onClick={onOpenBudgetEdit}
                 className="text-xs text-zinc-400 hover:text-zinc-700 underline ml-1 whitespace-nowrap flex-shrink-0"

@@ -362,6 +362,54 @@ export function getActiveBudgetMonth(date = new Date(), startDay = 1) {
   return new Date(y, m, 1);
 }
 
+/**
+ * 주어진 날짜(baseDate)가 속한 주(월요일~일요일)의 날짜 범위, 라벨, 7일 일자 목록 계산
+ * 예: 2026-11-21(토) -> startDate: "2026-11-16", endDate: "2026-11-22", weekTitle: "11월 3주", rangeLabel: "11.16 ~ 11.22"
+ */
+export function getBudgetWeekRange(baseDate = new Date()) {
+  const ref = baseDate instanceof Date && !isNaN(baseDate.getTime()) ? new Date(baseDate) : new Date();
+  const dayOfWeek = ref.getDay(); // 0=일, 1=월, ..., 6=토
+  const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+
+  const monday = new Date(ref.getFullYear(), ref.getMonth(), ref.getDate() + diffToMonday);
+  const sunday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 6);
+  const thursday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 3);
+
+  const weekNames = ['일', '월', '화', '수', '목', '금', '토'];
+  const days = [];
+  for (let i = 0; i < 7; i++) {
+    const cur = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + i);
+    const dayKey = todayYMD(cur);
+    const dayNum = cur.getDate();
+    const dow = weekNames[cur.getDay()];
+    days.push({
+      dayKey,
+      label: `${dow}(${dayNum})`,
+      day: String(dayNum)
+    });
+  }
+
+  const startM = monday.getMonth() + 1;
+  const startD = monday.getDate();
+  const endM = sunday.getMonth() + 1;
+  const endD = sunday.getDate();
+
+  const weekYear = thursday.getFullYear();
+  const weekMonth = thursday.getMonth() + 1;
+  const weekNum = Math.ceil(thursday.getDate() / 7);
+
+  return {
+    startDate: todayYMD(monday),
+    endDate: todayYMD(sunday),
+    weekYear,
+    weekMonth,
+    weekNum,
+    weekTitle: `${weekMonth}월 ${weekNum}주`,
+    rangeLabel: `${startM}.${startD} ~ ${endM}.${endD}`,
+    days
+  };
+}
+
 const DELETED_TX_KEY = 'budget_deleted_tx_ids';
 const AUTO_BACKUP_KEY = 'budget_auto_backup_snapshot';
 const PENDING_QUERIES_KEY = 'budget_pending_queries';

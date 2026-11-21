@@ -25,6 +25,7 @@ import {
   todayYMD,
   nowHM,
   getBudgetMonthRange,
+  getBudgetWeekRange,
   getActiveBudgetMonth,
   getDeletedTxIds,
   addDeletedTxIds,
@@ -41,9 +42,21 @@ import {
 } from './constants';
 import { getSheetsToken, setSheetsToken, ensureSheetsToken, buildSheetsGetUrl } from './sheetsAuth';
 
-// Helper: Client-side stats computation (used on GitHub Pages / Serverless)
-function computeClientStats(txList, year, month, monthlyBudget = 1200000, startDay = 1, categoryBudgets = null) {
-  const range = getBudgetMonthRange(year, month, startDay);
+// Helper: Client-side stats computation (used on GitHub Pages / Serverless, supports both Monthly & Weekly views)
+function computeClientStats(
+  txList,
+  year,
+  month,
+  monthlyBudget = 1200000,
+  startDay = 1,
+  categoryBudgets = null,
+  periodMode = 'month',
+  weekBaseDate = null
+) {
+  const isWeek = periodMode === 'week';
+  const range = isWeek
+    ? getBudgetWeekRange(weekBaseDate || new Date())
+    : getBudgetMonthRange(year, month, startDay);
   const allTx = txList || [];
   const monthlyTx = allTx.filter(t => {
     const d = normalizeDateYMD(t.date);
@@ -135,8 +148,11 @@ function computeClientStats(txList, year, month, monthlyBudget = 1200000, startD
   const balance = cashBalance + totalPointBalance;
 
   const monthlyBalance = totalIncome - totalExpense - totalSaving;
-  const remainingBudget = monthlyBudget - totalExpense;
-  const budgetPercent = monthlyBudget > 0 ? Math.round((totalExpense / monthlyBudget) * 100) : 0;
+  const effectiveBudget = isWeek
+    ? Math.max(1000, Math.round(((monthlyBudget / 30) * 7) / 1000) * 1000)
+    : monthlyBudget;
+  const remainingBudget = effectiveBudget - totalExpense;
+  const budgetPercent = effectiveBudget > 0 ? Math.round((totalExpense / effectiveBudget) * 100) : 0;
   const needPercent = totalExpense > 0 ? Math.round((totalNeedExpense / totalExpense) * 100) : 0;
   const wantPercent = totalExpense > 0 ? Math.round((totalWantExpense / totalExpense) * 100) : 0;
   const categories = Object.keys(catMap).map(k => ({
@@ -145,14 +161,17 @@ function computeClientStats(txList, year, month, monthlyBudget = 1200000, startD
     percentage: totalExpense > 0 ? Math.round((catMap[k] / totalExpense) * 100) : 0
   })).sort((a, b) => b.amount - a.amount);
 
-  // Category Budget Tracking
+  // Category Budget Tracking (weekly prorated when in week mode)
   const activeBudgets = categoryBudgets !== null && categoryBudgets !== undefined
     ? categoryBudgets
     : getStoredCategoryBudgets();
   const categoryBudgetStats = Object.keys(activeBudgets || {})
     .filter(cat => Number(activeBudgets[cat]) > 0)
     .map(cat => {
-      const budget = Number(activeBudgets[cat]) || 0;
+      const rawBudget = Number(activeBudgets[cat]) || 0;
+      const budget = isWeek
+        ? Math.max(1000, Math.round(((rawBudget / 30) * 7) / 1000) * 1000)
+        : rawBudget;
       const spent = catMap[cat] || 0;
       const remaining = budget - spent;
       const percent = budget > 0 ? Math.round((spent / budget) * 100) : 0;
@@ -171,6 +190,8 @@ function computeClientStats(txList, year, month, monthlyBudget = 1200000, startD
   return {
     year,
     month,
+    periodMode,
+    weekTitle: range.weekTitle || '',
     startDate: range.startDate,
     endDate: range.endDate,
     rangeLabel: range.rangeLabel,
@@ -190,7 +211,7 @@ function computeClientStats(txList, year, month, monthlyBudget = 1200000, startD
     monthlyPointUsed,
     balance,
     monthlyBalance,
-    monthlyBudget,
+    monthlyBudget: effectiveBudget,
     remainingBudget,
     budgetPercent,
     categories,
@@ -257,7 +278,17 @@ function buildSyncedWishlistPayload(wishlistItems) {
   );
 }
 
+function getActiveRange({ year, month, monthStartDay, periodMode, weekDate }) {
+  if (periodMode === 'week') {
+    return getBudgetWeekRange(weekDate || new Date());
+  }
+  return getBudgetMonthRange(year, month, monthStartDay);
+}
+
 export default function App() {
+  const [periodMode, setPeriodMode] = useState('month'); // 'month' | 'week'
+  const [weekDate, setWeekDate] = useState(() => new Date());
+
   const [monthStartDay, setMonthStartDay] = useState(() => {
     return Number(localStorage.getItem('budget_month_start_day')) || 1;
   });
@@ -398,11 +429,11 @@ export default function App() {
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth() + 1;
 
-  // Always track latest active period in a ref so async syncs never overwrite UI with a stale month closure
-  const latestPeriodRef = useRef({ year, month, monthStartDay });
-  latestPeriodRef.current = { year, month, monthStartDay };
+  // Always track latest active period in a ref so async syncs never overwrite UI with a stale month/week closure
+  const latestPeriodRef = useRef({ year, month, monthStartDay, periodMode, weekDate });
+  latestPeriodRef.current = { year, month, monthStartDay, periodMode, weekDate };
 
-  // Keep stats in sync whenever transactions, year, month, monthly_budget, categoryBudgets, or monthStartDay change
+  // Keep stats in sync whenever transactions, period, monthly_budget, categoryBudgets, or monthStartDay change
   useEffect(() => {
     const b = Number(settings?.monthly_budget) || Number(localStorage.getItem('budget_monthly_target')) || 1200000;
     const startDay = Number(monthStartDay) || Number(settings?.month_start_day) || Number(localStorage.getItem('budget_month_start_day')) || 1;
@@ -414,18 +445,18 @@ export default function App() {
         if (Array.isArray(parsed) && parsed.length >= allTx.length) allTx = parsed;
       }
     } catch (_) {}
-    setStats(computeClientStats(allTx, year, month, b, startDay, categoryBudgets));
-  }, [transactions, year, month, settings?.monthly_budget, settings?.month_start_day, monthStartDay, categoryBudgets]);
+    setStats(computeClientStats(allTx, year, month, b, startDay, categoryBudgets, periodMode, weekDate));
+  }, [transactions, year, month, settings?.monthly_budget, settings?.month_start_day, monthStartDay, categoryBudgets, periodMode, weekDate]);
 
   // 1. Fetch Transactions (Merges localStorage + auto-recovery snapshot & optional local server)
   const fetchTransactions = useCallback(async () => {
-    const { year: curY, month: curM, monthStartDay: curStart } = latestPeriodRef.current;
+    const curPeriod = latestPeriodRef.current;
     const hasSheets = !!(localStorage.getItem('budget_sheets_url'));
     const localList = getRecoveredLocalTransactions();
 
     if (!hasSheets) {
       try {
-        const res = await fetch(`/api/transactions?year=${curY}&month=${curM}`);
+        const res = await fetch(`/api/transactions?year=${curPeriod.year}&month=${curPeriod.month}`);
         if (res.ok) {
           const data = await res.json();
           if (Array.isArray(data) && data.length > 0 && localList.length === 0) {
@@ -438,22 +469,22 @@ export default function App() {
       } catch (_) {}
     }
 
-    const range = getBudgetMonthRange(curY, curM, curStart);
+    const range = getActiveRange(curPeriod);
     const filtered = localList.filter(t => {
       const d = normalizeDateYMD(t.date);
       return d >= range.startDate && d <= range.endDate;
     });
     setTransactions(filtered);
-  }, [year, month, monthStartDay]);
+  }, [year, month, monthStartDay, periodMode, weekDate]);
 
   // 2. Fetch Stats
   const fetchStats = useCallback(async () => {
-    const { year: curY, month: curM, monthStartDay: curStart } = latestPeriodRef.current;
+    const { year: curY, month: curM, monthStartDay: curStart, periodMode: curMode, weekDate: curWeek } = latestPeriodRef.current;
     const localList = getRecoveredLocalTransactions();
     const b = Number(localStorage.getItem('budget_monthly_target')) || Number(settings?.monthly_budget) || 1200000;
     const startDay = Number(curStart) || Number(settings?.month_start_day) || 1;
-    setStats(computeClientStats(localList, curY, curM, b, startDay));
-  }, [year, month, settings?.monthly_budget, settings?.month_start_day, monthStartDay]);
+    setStats(computeClientStats(localList, curY, curM, b, startDay, categoryBudgets, curMode, curWeek));
+  }, [year, month, settings?.monthly_budget, settings?.month_start_day, monthStartDay, categoryBudgets, periodMode, weekDate]);
 
   // 3. Fetch Settings (Never overwrites localStorage with empty server values)
   const fetchSettings = useCallback(async () => {
@@ -654,6 +685,7 @@ export default function App() {
             const activeDate = getActiveBudgetMonth(new Date(), sheetStartDay);
             setCurrentDate(activeDate);
             latestPeriodRef.current = {
+              ...latestPeriodRef.current,
               year: activeDate.getFullYear(),
               month: activeDate.getMonth() + 1,
               monthStartDay: sheetStartDay
@@ -682,8 +714,7 @@ export default function App() {
           localStorage.setItem('budget_local_transactions', JSON.stringify(sheetTx));
           saveSafeAutoBackupSnapshot(sheetTx);
 
-          const { year: curY, month: curM, monthStartDay: curStart } = latestPeriodRef.current;
-          const range = getBudgetMonthRange(curY, curM, curStart);
+          const range = getActiveRange(latestPeriodRef.current);
           setTransactions(sheetTx.filter(t => {
             const d = normalizeDateYMD(t.date);
             return d >= range.startDate && d <= range.endDate;
@@ -757,8 +788,7 @@ export default function App() {
         }));
       } else if (Array.isArray(data)) {
         localStorage.setItem('budget_local_transactions', JSON.stringify(data));
-        const { year: curY, month: curM, monthStartDay: curStart } = latestPeriodRef.current;
-        const range = getBudgetMonthRange(curY, curM, curStart);
+        const range = getActiveRange(latestPeriodRef.current);
         setTransactions(data.filter(t => {
           const d = normalizeDateYMD(t.date);
           return d >= range.startDate && d <= range.endDate;
@@ -844,18 +874,41 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Re-filter transactions when month/year/monthStartDay changes
+  // Re-filter transactions when month/year/monthStartDay/periodMode/weekDate changes
   useEffect(() => {
     fetchTransactions();
     fetchStats();
-  }, [year, month, monthStartDay, fetchTransactions, fetchStats]);
+  }, [year, month, monthStartDay, periodMode, weekDate, fetchTransactions, fetchStats]);
 
-  // Month navigation
-  const handlePrevMonth = () => {
-    setCurrentDate(new Date(year, currentDate.getMonth() - 1, 1));
+  // Period navigation (Month or Week)
+  const handlePrevPeriod = () => {
+    if (periodMode === 'week') {
+      setWeekDate(prev => new Date(prev.getFullYear(), prev.getMonth(), prev.getDate() - 7));
+    } else {
+      setCurrentDate(new Date(year, currentDate.getMonth() - 1, 1));
+    }
   };
-  const handleNextMonth = () => {
-    setCurrentDate(new Date(year, currentDate.getMonth() + 1, 1));
+  const handleNextPeriod = () => {
+    if (periodMode === 'week') {
+      setWeekDate(prev => new Date(prev.getFullYear(), prev.getMonth(), prev.getDate() + 7));
+    } else {
+      setCurrentDate(new Date(year, currentDate.getMonth() + 1, 1));
+    }
+  };
+  const handleGoToday = () => {
+    const now = new Date();
+    if (periodMode === 'week') {
+      setWeekDate(now);
+    } else {
+      setCurrentDate(getActiveBudgetMonth(now, monthStartDay));
+    }
+  };
+  const handleChangePeriodMode = (nextMode) => {
+    if (nextMode === periodMode) return;
+    setPeriodMode(nextMode);
+    if (nextMode === 'week') {
+      setWeekDate(new Date());
+    }
   };
 
   // Global Clipboard Paste (Ctrl+V) listener — routes to Wishlist AI Scanner if on Wishlist view
@@ -984,18 +1037,29 @@ export default function App() {
     const txYear = parts[0];
     const txMonth = parts[1];
     const txDay = parts[2] || 1;
-    const range = getBudgetMonthRange(year, month, monthStartDay);
+    const range = getActiveRange({ year, month, monthStartDay, periodMode, weekDate });
     if (!isNaN(txYear) && !isNaN(txMonth) && (cleanDate < range.startDate || cleanDate > range.endDate)) {
-      const targetDate = getActiveBudgetMonth(new Date(txYear, txMonth - 1, txDay), monthStartDay);
-      setCurrentDate(targetDate);
-      const tY = targetDate.getFullYear();
-      const tM = targetDate.getMonth() + 1;
-      latestPeriodRef.current = { year: tY, month: tM, monthStartDay };
-      const targetRange = getBudgetMonthRange(tY, tM, monthStartDay);
-      setTransactions(list.filter(t => {
-        const d = normalizeDateYMD(t.date);
-        return d >= targetRange.startDate && d <= targetRange.endDate;
-      }));
+      const txDateObj = new Date(txYear, txMonth - 1, txDay);
+      if (periodMode === 'week') {
+        setWeekDate(txDateObj);
+        latestPeriodRef.current = { ...latestPeriodRef.current, weekDate: txDateObj };
+        const targetRange = getBudgetWeekRange(txDateObj);
+        setTransactions(list.filter(t => {
+          const d = normalizeDateYMD(t.date);
+          return d >= targetRange.startDate && d <= targetRange.endDate;
+        }));
+      } else {
+        const targetDate = getActiveBudgetMonth(txDateObj, monthStartDay);
+        setCurrentDate(targetDate);
+        const tY = targetDate.getFullYear();
+        const tM = targetDate.getMonth() + 1;
+        latestPeriodRef.current = { ...latestPeriodRef.current, year: tY, month: tM, monthStartDay };
+        const targetRange = getBudgetMonthRange(tY, tM, monthStartDay);
+        setTransactions(list.filter(t => {
+          const d = normalizeDateYMD(t.date);
+          return d >= targetRange.startDate && d <= targetRange.endDate;
+        }));
+      }
     } else {
       setTransactions(list.filter(t => {
         const d = normalizeDateYMD(t.date);
@@ -1100,21 +1164,34 @@ export default function App() {
     const txYear = parts[0];
     const txMonth = parts[1];
     const txDay = parts[2] || 1;
-    const range = getBudgetMonthRange(year, month, monthStartDay);
+    const range = getActiveRange({ year, month, monthStartDay, periodMode, weekDate });
 
     if (!isNaN(txYear) && !isNaN(txMonth) && (firstDate < range.startDate || firstDate > range.endDate)) {
-      const targetDate = getActiveBudgetMonth(new Date(txYear, txMonth - 1, txDay), monthStartDay);
-      setCurrentDate(targetDate);
-      const tY = targetDate.getFullYear();
-      const tM = targetDate.getMonth() + 1;
-      latestPeriodRef.current = { year: tY, month: tM, monthStartDay };
-      const targetRange = getBudgetMonthRange(tY, tM, monthStartDay);
-      setTransactions(
-        list.filter((t) => {
-          const d = normalizeDateYMD(t.date);
-          return d >= targetRange.startDate && d <= targetRange.endDate;
-        })
-      );
+      const txDateObj = new Date(txYear, txMonth - 1, txDay);
+      if (periodMode === 'week') {
+        setWeekDate(txDateObj);
+        latestPeriodRef.current = { ...latestPeriodRef.current, weekDate: txDateObj };
+        const targetRange = getBudgetWeekRange(txDateObj);
+        setTransactions(
+          list.filter((t) => {
+            const d = normalizeDateYMD(t.date);
+            return d >= targetRange.startDate && d <= targetRange.endDate;
+          })
+        );
+      } else {
+        const targetDate = getActiveBudgetMonth(txDateObj, monthStartDay);
+        setCurrentDate(targetDate);
+        const tY = targetDate.getFullYear();
+        const tM = targetDate.getMonth() + 1;
+        latestPeriodRef.current = { ...latestPeriodRef.current, year: tY, month: tM, monthStartDay };
+        const targetRange = getBudgetMonthRange(tY, tM, monthStartDay);
+        setTransactions(
+          list.filter((t) => {
+            const d = normalizeDateYMD(t.date);
+            return d >= targetRange.startDate && d <= targetRange.endDate;
+          })
+        );
+      }
     } else {
       setTransactions(
         list.filter((t) => {
@@ -1173,7 +1250,7 @@ export default function App() {
     localStorage.setItem('budget_local_transactions', JSON.stringify(list));
     saveSafeAutoBackupSnapshot(list);
 
-    const range = getBudgetMonthRange(year, month, monthStartDay);
+    const range = getActiveRange({ year, month, monthStartDay, periodMode, weekDate });
     setTransactions(list.filter(t => {
       const d = normalizeDateYMD(t.date);
       return d >= range.startDate && d <= range.endDate;
@@ -1347,11 +1424,15 @@ export default function App() {
 
       {/* Top Header */}
       <Header
-        currentDate={currentDate}
+        currentDate={periodMode === 'week' ? weekDate : currentDate}
+        periodMode={periodMode}
+        onChangePeriodMode={handleChangePeriodMode}
+        weekTitle={stats?.weekTitle}
         monthStartDay={monthStartDay}
-        rangeLabel={stats.rangeLabel}
-        onPrevMonth={handlePrevMonth}
-        onNextMonth={handleNextMonth}
+        rangeLabel={stats?.rangeLabel}
+        onPrevMonth={handlePrevPeriod}
+        onNextMonth={handleNextPeriod}
+        onGoToday={handleGoToday}
         onOpenScanner={() => {
           setInitialFileForScanner(null);
           setIsScannerOpen(true);
@@ -1484,9 +1565,10 @@ export default function App() {
           />
         ) : (
           <>
-            {/* 1. Monthly Overview Cards */}
+            {/* 1. Monthly / Weekly Overview Cards */}
             <SummaryCards
               stats={stats}
+              periodMode={periodMode}
               onOpenPointAdd={() => {
                 setEditingTx({ defaultType: 'point', pointMode: 'earn' });
                 setIsTxModalOpen(true);
@@ -1499,8 +1581,8 @@ export default function App() {
               }}
             />
 
-            {/* 2. Visual Charts (Category donut + Daily trend) */}
-            <ChartsView stats={stats} />
+            {/* 2. Visual Charts (Category donut + Daily/Weekly trend) */}
+            <ChartsView stats={stats} periodMode={periodMode} />
 
             {/* 3. Detailed Transactions Section */}
             <div id="transaction-section">

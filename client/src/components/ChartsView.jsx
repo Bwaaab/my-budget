@@ -34,8 +34,9 @@ const SLATE_PALETTE = [
   '#27272a'
 ];
 
-export default function ChartsView({ stats }) {
+export default function ChartsView({ stats, periodMode = 'month' }) {
   const { categories = [], dailyTrend = [] } = stats || {};
+  const isWeek = periodMode === 'week';
 
   // Doughnut Chart Data (Category breakdown)
   const doughnutData = {
@@ -69,11 +70,11 @@ export default function ChartsView({ stats }) {
     labels: dailyTrend.map(d => d.label || `${d.day}일`),
     datasets: [
       {
-        label: '일별 지출',
+        label: isWeek ? '요일별 지출' : '일별 지출',
         data: dailyTrend.map(d => d.expense),
         backgroundColor: '#27272a', // zinc-800
-        borderRadius: 4,
-        maxBarThickness: 14
+        borderRadius: isWeek ? 6 : 4,
+        maxBarThickness: isWeek ? 28 : 14
       }
     ]
   };
@@ -149,11 +150,13 @@ export default function ChartsView({ stats }) {
         )}
       </div>
 
-      {/* Daily Spending Trend Card */}
+      {/* Daily / Weekly Spending Trend Card */}
       <div className="bg-white rounded-2xl p-4 sm:p-5 border border-zinc-200/70 shadow-xs flex flex-col">
         <h3 className="text-xs sm:text-sm font-bold text-zinc-900 mb-3 flex items-center justify-between">
-          <span>일별 지출 추이</span>
-          <span className="text-[11px] text-zinc-400 font-normal">일별 통계</span>
+          <span>{isWeek ? '요일별 지출 추이' : '일별 지출 추이'}</span>
+          <span className="text-[11px] text-zinc-400 font-normal">
+            {isWeek ? '월~일 주간 통계' : '일별 통계'}
+          </span>
         </h3>
 
         <div className="h-40 sm:h-44 w-full mt-1">
